@@ -17,6 +17,7 @@ use std::{
     cmp::Ordering,
     f32::consts::{PI, TAU},
     ops::Mul,
+    time::Duration,
 };
 
 const LEVEL_DATA: &str = r#"
@@ -264,12 +265,17 @@ struct Movement {
     direction: Direction,
 }
 
+#[derive(Component)]
+struct Wobbles(f32);
+
 #[derive(Component, Default)]
 struct Size(Vec3);
 
+#[derive(Component, Default)]
+struct Speed(f32);
+
 const FPS: f32 = 60.0;
 const TIME_STEP: f32 = 1.0 / FPS;
-const MOVE_SPEED: f32 = 0.25; // seconds
 
 fn main() {
     App::new()
@@ -283,7 +289,6 @@ fn main() {
         .insert_resource(Level::new(LEVEL_DATA))
         .add_plugins(DefaultPlugins)
         .add_plugin(OutlinePlugin)
-        .add_plugin(MaterialPlugin::<CustomMaterial>::default())
         .add_startup_system(setup)
         .add_system(close_on_esc)
         .add_system(wobble)
@@ -383,11 +388,7 @@ fn setup(
     });
     // camera
     commands.spawn_bundle(Camera3dBundle {
-        //projection: Projection::Orthographic(OrthographicProjection::default()),
-        //transform: Transform::from_xyz(0.0, 0.5, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
-        // working
         transform: Transform::from_xyz(0.0, 5.5, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
-        // transform: Transform::from_xyz(0.0, 5.5, 7.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
 }
@@ -468,6 +469,7 @@ fn setup_player(
         .insert(Size(s))
         .insert(Movement::default())
         .insert(Location(block.level_position))
+        .insert(Speed(0.3))
         .insert(Player);
 }
 
@@ -490,6 +492,7 @@ fn setup_enemy(
         .insert(Size(s))
         .insert(Movement::default())
         .insert(Location(block.level_position))
+        .insert(Speed(0.7))
         .insert(Enemy);
 }
 
@@ -523,32 +526,6 @@ fn setup_space(
         .insert(Floor);
 }
 
-// Materials
-
-// This is the struct that will be passed to your shader
-#[derive(AsBindGroup, Clone, TypeUuid)]
-#[uuid = "4ee9c363-1124-4113-890e-199d81b00281"]
-pub struct CustomMaterial {
-    #[uniform(0)]
-    color: Color,
-}
-
-/// The Material trait is very configurable, but comes with sensible defaults for all methods.
-/// You only need to implement functions for features that need non-default behavior. See the Material api docs for details!
-/// When using the GLSL shading language for your shader, the specialize method must be overriden.
-impl Material for CustomMaterial {
-    fn fragment_shader() -> ShaderRef {
-        "shaders/line_material.wgsl".into()
-    }
-
-    fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Opaque
-    }
-}
-
-#[derive(Component)]
-struct Wobbles(f32);
-
 fn wobble(mut query: Query<(&mut Transform, &Wobbles)>, timer: Res<Time>, mut t: Local<f32>) {
     let ta = *t;
     *t = (ta + 0.5 * timer.delta_seconds()) % TAU;
@@ -566,32 +543,26 @@ fn wobble(mut query: Query<(&mut Transform, &Wobbles)>, timer: Res<Time>, mut t:
 }
 
 fn enemy_logic(
-    mut query: Query<(&mut Movement, &Transform, &Location), With<Enemy>>,
+    mut query: Query<(&mut Movement, &Transform, &Location, &Speed), With<Enemy>>,
     timer: Res<Time>,
-    mut last_step: Local<f32>,
+    // mut last_step: Local<f32>,
     level: Res<Level>,
     player_query: Query<&Transform, With<Player>>,
 ) {
-    let current = timer.time_since_startup().as_secs_f32();
-    let last = *last_step;
-    let diff = current - last;
-    if diff < MOVE_SPEED {
-        return;
-    }
-
     // find the player location
     let player_location = match player_query.iter().next() {
         Some(n) => Vec2::new(n.translation.x, n.translation.z),
         None => return,
     };
-    dbg!("run");
 
-    *last_step = current;
-    for (mut velocity, transform, position) in query.iter_mut() {
+    for (mut velocity, transform, position, speed) in query.iter_mut() {
+        // if we're still moving, do nothing
+        if velocity.value > 0.0 {
+            continue;
+        }
         let v = Vec2::new(transform.translation.x, transform.translation.z);
         // find the free directions
-        dbg!(&position.0);
-        let mut directions = dbg!(level.free_directions(position.0));
+        let mut directions = level.free_directions(position.0);
         if directions.is_empty() {
             continue;
         }
@@ -610,10 +581,10 @@ fn enemy_logic(
 
         // calculate the new velocity value based on the current speed and time
         // the size of the field on the timestep and the speed step
-        let frames = FPS * MOVE_SPEED;
-        let value = sizes::field.x / frames;
-        velocity.direction = dbg!(directions[0]);
-        velocity.value = dbg!(value);
+        // let frames = FPS * speed.0;
+        // let value = sizes::field.x / frames;
+        velocity.direction = directions[0];
+        velocity.value = sizes::field.x;
     }
 }
 
@@ -640,9 +611,6 @@ fn keyboard_input_system(
                     velocity.direction = direction;
                     velocity.value = sizes::field.x;
                 }
-            } else if keyboard_input.just_released(code) {
-                // velocity.direction = Direction::default();
-                // velocity.value = 0.0;
             }
         }
     }
@@ -650,18 +618,16 @@ fn keyboard_input_system(
 
 fn move_entities(
     // We need the entities that are being moved
-    mut query: Query<(&mut Transform, &Size, &mut Movement, &mut Location), Without<Wall>>,
-    // And the walls
-    wall_query: Query<(&Transform, &Size), With<Wall>>,
+    mut query: Query<(&mut Transform, &mut Movement, &mut Location, &Speed), Without<Wall>>,
     level: Res<Level>,
 ) {
-    for (mut transform, size, mut velocity, mut location) in query.iter_mut() {
+    for (mut transform, mut velocity, mut location, speed) in query.iter_mut() {
         // Ignore non-moving objects
         if velocity.value <= 0.0 {
             velocity.direction = Direction::default();
             continue;
         }
-        let frames = FPS * MOVE_SPEED;
+        let frames = FPS * speed.0;
         let value = sizes::field.x / frames;
         let vector = velocity.direction * Vec2::new(1.0, 1.0) * value;
         let new_translation = Vec3::new(
@@ -669,30 +635,9 @@ fn move_entities(
             transform.translation.y,
             vector.y + transform.translation.z,
         );
-        // Check if we collide with a wall
-        /*for (wall_transform, wall_size) in wall_query.iter() {
-            // we perform a 2d collision
-            let c = collide(
-                Vec3::new(
-                    wall_transform.translation.x,
-                    wall_transform.translation.z,
-                    0.0,
-                ),
-                Vec2::new(wall_size.0.x, wall_size.0.z),
-                Vec3::new(new_translation.x, new_translation.z, 0.0),
-                Vec2::new(size.0.x, size.0.z),
-            );
-            // If we collide, stop going into that direction
-            if c.is_some() {
-                velocity.direction = Direction::default();
-                velocity.value = 0.0;
-                return;
-            }
-        }*/
         transform.translation = new_translation;
 
         // reduce the velocity based on the frame
-        //dbg!(value);
         if velocity.value >= 0.0 {
             velocity.value -= value;
         }
