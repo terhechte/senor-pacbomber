@@ -137,10 +137,6 @@ impl Level {
             BlockType::WallSmallH,
             BlockType::WallSmallV,
         ];
-        // dbg!(position, self.offsets, self.size);
-
-        // let position = Vec3::new(-0.5, 0.0, -0.25);
-        // let offsets = Vec3::new(3.125, 0.0, 1.125);
         let offsets = Vec3::new(self.offsets.0, 0.0, self.offsets.1);
         let size = offsets * 2.;
         let item = Vec3::new(self.size.0 as f32, 0., self.size.1 as f32) / size;
@@ -153,23 +149,16 @@ impl Level {
         // first, convert the position into board pixels
         let x = pos.x as i8;
         let z = pos.z as i8;
-        // if x > self.size.0 { return Vec::new() }
-        // if z > self.size.1 { return Vec::new() }
+
         // traverse all directions around the position and check if they're free
         println!("enemy is at {x} {z}");
         let mut results = Vec::new();
-        'outer: for (mx, mz) in [
-            (1_i8, 0),
-            (-1_i8, 0),
-            (0, 1),
-            (0, -1_i8),
-            // (x + 1, z + 1),
-            // (x - 1, z - 1),
-            // (x + 1, z - 1),
-            // (x - 1, z + 1),
-        ] {
+        'outer: for (mx, mz) in [(1_i8, 0), (-1_i8, 0), (0, 1), (0, -1_i8)] {
             let (ax, az) = (x + mx, z + mz);
             if ax < 0 || az < 0 {
+                continue;
+            }
+            if ax as usize >= self.size.0 || az as usize >= self.size.1 {
                 continue;
             }
             let item = &self.rows[az as usize][ax as usize];
@@ -181,7 +170,7 @@ impl Level {
             // otherwise this is free
             results.push(Vec2::new(mx as f32, mz as f32))
         }
-        dbg!(results)
+        results
     }
 }
 
@@ -217,7 +206,10 @@ struct Velocity(Vec2);
 #[derive(Component, Default)]
 struct Size(Vec3);
 
-const TIME_STEP: f32 = 1.0 / 60.0;
+const FPS: f32 = 60.0;
+const TIME_STEP: f32 = 1.0 / FPS;
+const PLAYER_SPEED: f32 = 0.05;
+const ENEMY_SPEED_STEP: f32 = 0.5; // seconds
 
 fn main() {
     App::new()
@@ -521,7 +513,7 @@ fn enemy_logic(
     let current = timer.time_since_startup().as_secs_f32();
     let last = *last_step;
     let diff = current - last;
-    if diff < 0.5 {
+    if diff < ENEMY_SPEED_STEP {
         return;
     }
 
@@ -539,6 +531,7 @@ fn enemy_logic(
         if directions.is_empty() {
             return;
         }
+        // just to check if a change by this value brings as closer to the player
         let mov = Vec2::new(0.05, 0.05);
 
         // order directions by pointing towards the player
@@ -551,10 +544,13 @@ fn enemy_logic(
                 .unwrap_or(Ordering::Equal)
         });
 
-        dbg!(directions[0]);
+        // calculate the new velocity value based on the current speed and time
+        // the size of the field on the timestep and the speed step
+        let frames = FPS * ENEMY_SPEED_STEP;
+        let value = sizes::field.x / frames;
 
-        velocity.0.x = directions[0].x * mov.x;
-        velocity.0.y = directions[0].y * mov.y;
+        velocity.0.x = directions[0].x * value;
+        velocity.0.y = directions[0].y * value;
     }
 }
 
@@ -562,7 +558,7 @@ fn keyboard_input_system(
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<&mut Velocity, With<Player>>,
 ) {
-    let speed = 0.05;
+    let speed = PLAYER_SPEED;
     for mut velocity in query.iter_mut() {
         for (code, vector) in [
             (KeyCode::Left, Vec2::new(-speed, 0.0)),
@@ -581,11 +577,15 @@ fn keyboard_input_system(
 
 fn move_entities(
     // We need the entities that are being moved
-    mut query: Query<(&mut Transform, &Size, &Velocity), Without<Wall>>,
+    mut query: Query<(&mut Transform, &Size, &mut Velocity), Without<Wall>>,
     // And the walls
     wall_query: Query<(&Transform, &Size), With<Wall>>,
 ) {
-    for (mut transform, size, velocity) in query.iter_mut() {
+    for (mut transform, size, mut velocity) in query.iter_mut() {
+        // Ignore non-moving objects
+        if velocity.0.x == 0.0 && velocity.0.y == 0.0 {
+            continue;
+        }
         let new_translation = Vec3::new(
             velocity.0.x + transform.translation.x,
             transform.translation.y,
@@ -604,10 +604,23 @@ fn move_entities(
                 Vec3::new(new_translation.x, new_translation.z, 0.0),
                 Vec2::new(size.0.x, size.0.z),
             );
+            // If we collide, stop going into that direction
             if c.is_some() {
+                velocity.0 = Vec2::default();
                 return;
             }
         }
         transform.translation = new_translation;
+
+        // reduce the velocity based on the frame
+        let frames = dbg!(FPS * ENEMY_SPEED_STEP);
+        let value = dbg!(sizes::field.x / frames);
+        dbg!(value);
+        if velocity.0.x != 0.0 {
+            velocity.0.x -= value;
+        }
+        if velocity.0.y != 0.0 {
+            velocity.0.y -= value;
+        }
     }
 }
