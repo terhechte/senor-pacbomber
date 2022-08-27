@@ -16,17 +16,18 @@ use bevy_mod_outline::*;
 use std::{
     cmp::Ordering,
     f32::consts::{PI, TAU},
+    ops::Mul,
 };
 
 const LEVEL_DATA: &str = r#"
 #----------   ----------#
-| * * * * * ** * * * *  |
+| * * * * *o** * * * *  |
 | ##---- #-----# ----## |
 | #* *   #x    #   * *# |
   #----  # ### #  ----#  
 | * * * * *   * * * * * |
 | --#--- ##   ## ---#-- |
-|  *|* o           *|*  |
+|  *|*             *|*  |
 #----------   ----------#
 "#;
 
@@ -73,16 +74,62 @@ impl From<char> for BlockType {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+struct Position {
+    x: usize,
+    z: usize,
+}
+
+impl Position {
+    fn new(x: usize, z: usize) -> Self {
+        Self { x, z }
+    }
+
+    fn apply_direction(&mut self, direction: &Direction) {
+        let x = self.x as i8 + direction.x;
+        if x >= 0 {
+            self.x = x as usize;
+        }
+        let z = self.z as i8 + direction.z;
+        if z >= 0 {
+            self.z = z as usize;
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+struct Direction {
+    x: i8,
+    z: i8,
+}
+
+impl Direction {
+    fn new(x: i8, z: i8) -> Self {
+        Self { x, z }
+    }
+}
+
+impl Mul<Vec2> for Direction {
+    type Output = Vec2;
+    #[inline]
+    fn mul(self, rhs: Vec2) -> Vec2 {
+        Vec2 {
+            x: (self.x as f32).mul(rhs.x),
+            y: (self.z as f32).mul(rhs.y),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Block {
     kind: BlockType,
     position: Vec3,
-    level_pos: (usize, usize),
+    level_position: Position,
 }
 
 #[derive(Debug)]
 struct Level {
-    size: (usize, usize),
+    size: Position,
     offsets: (f32, f32),
     rows: Vec<Vec<Block>>,
 }
@@ -113,14 +160,14 @@ impl Level {
                 row.push(Block {
                     kind: block,
                     position: Vec3::new(position.1, 0.0, position.0),
-                    level_pos: (x_index, z_index),
+                    level_position: Position::new(z_index, x_index),
                 })
             }
 
             rows.push(row);
         }
         Level {
-            size: (x_size, z_size),
+            size: Position::new(x_size, z_size),
             offsets: (x_offset, z_offset),
             rows,
         }
@@ -130,35 +177,43 @@ impl Level {
         self.rows.iter()
     }
 
+    fn translate_to_position(&self, position: Vec3) -> Position {
+        let offsets = Vec3::new(self.offsets.0, 0.0, self.offsets.1);
+        let size = offsets * 2.;
+        let item = Vec3::new(self.size.x as f32, 0., self.size.z as f32) / size;
+        Position {
+            x: ((position.x + offsets.x) * item.x) as usize,
+            z: ((position.z + offsets.z) * item.z) as usize,
+        }
+    }
+
+    fn translate_from_position(&self, position: Position) -> Vec3 {
+        let (x_offset, z_offset) = self.offsets;
+        let (x_index, z_index) = (position.x, position.z);
+        let v_b = sizes::field;
+        let position = (
+            ((x_index as f32 * v_b.x) - x_offset) + v_b.x / 2.0,
+            ((z_index as f32 * v_b.z) - z_offset) + v_b.z / 2.0,
+        );
+        Vec3::new(position.0, 0.0, position.1)
+    }
+
     /// Find all block collisions in block space.
-    fn free_directions(&self, position: Vec3) -> Vec<Vec2> {
+    fn free_directions(&self, position: Position) -> Vec<Direction> {
         let blocking_kinds = [
             BlockType::WallBig,
             BlockType::WallSmallH,
             BlockType::WallSmallV,
         ];
-        let offsets = Vec3::new(self.offsets.0, 0.0, self.offsets.1);
-        let size = offsets * 2.;
-        let item = Vec3::new(self.size.0 as f32, 0., self.size.1 as f32) / size;
-        let pos = Vec3::new(
-            (position.x + offsets.x) * item.x,
-            0.0,
-            (position.z + offsets.z) * item.z,
-        );
-
-        // first, convert the position into board pixels
-        let x = pos.x as i8;
-        let z = pos.z as i8;
-
         // traverse all directions around the position and check if they're free
-        println!("enemy is at {x} {z}");
+        let (x, z) = (position.x as i8, position.z as i8);
         let mut results = Vec::new();
         'outer: for (mx, mz) in [(1_i8, 0), (-1_i8, 0), (0, 1), (0, -1_i8)] {
             let (ax, az) = (x + mx, z + mz);
             if ax < 0 || az < 0 {
                 continue;
             }
-            if ax as usize >= self.size.0 || az as usize >= self.size.1 {
+            if ax as usize >= self.size.x || az as usize >= self.size.z {
                 continue;
             }
             let item = &self.rows[az as usize][ax as usize];
@@ -168,7 +223,7 @@ impl Level {
                 }
             }
             // otherwise this is free
-            results.push(Vec2::new(mx as f32, mz as f32))
+            results.push(Direction::new(mx, mz))
         }
         results
     }
@@ -197,19 +252,24 @@ struct Coin;
 #[derive(Component)]
 struct Player;
 
+#[derive(Component, Debug)]
+struct Location(Position);
+
 #[derive(Component)]
 struct Floor;
 
-#[derive(Component, Default)]
-struct Velocity(Vec2);
+#[derive(Component, Default, Debug)]
+struct Movement {
+    value: f32,
+    direction: Direction,
+}
 
 #[derive(Component, Default)]
 struct Size(Vec3);
 
 const FPS: f32 = 60.0;
 const TIME_STEP: f32 = 1.0 / FPS;
-const PLAYER_SPEED: f32 = 0.05;
-const ENEMY_SPEED_STEP: f32 = 0.5; // seconds
+const MOVE_SPEED: f32 = 0.25; // seconds
 
 fn main() {
     App::new()
@@ -406,7 +466,8 @@ fn setup_player(
             ..default()
         })
         .insert(Size(s))
-        .insert(Velocity::default())
+        .insert(Movement::default())
+        .insert(Location(block.level_position))
         .insert(Player);
 }
 
@@ -427,7 +488,8 @@ fn setup_enemy(
             ..default()
         })
         .insert(Size(s))
-        .insert(Velocity::default())
+        .insert(Movement::default())
+        .insert(Location(block.level_position))
         .insert(Enemy);
 }
 
@@ -504,7 +566,7 @@ fn wobble(mut query: Query<(&mut Transform, &Wobbles)>, timer: Res<Time>, mut t:
 }
 
 fn enemy_logic(
-    mut query: Query<(&mut Velocity, &Transform), With<Enemy>>,
+    mut query: Query<(&mut Movement, &Transform, &Location), With<Enemy>>,
     timer: Res<Time>,
     mut last_step: Local<f32>,
     level: Res<Level>,
@@ -513,7 +575,7 @@ fn enemy_logic(
     let current = timer.time_since_startup().as_secs_f32();
     let last = *last_step;
     let diff = current - last;
-    if diff < ENEMY_SPEED_STEP {
+    if diff < MOVE_SPEED {
         return;
     }
 
@@ -522,14 +584,16 @@ fn enemy_logic(
         Some(n) => Vec2::new(n.translation.x, n.translation.z),
         None => return,
     };
+    dbg!("run");
 
     *last_step = current;
-    for (mut velocity, transform) in query.iter_mut() {
+    for (mut velocity, transform, position) in query.iter_mut() {
         let v = Vec2::new(transform.translation.x, transform.translation.z);
         // find the free directions
-        let mut directions = level.free_directions(transform.translation);
+        dbg!(&position.0);
+        let mut directions = dbg!(level.free_directions(position.0));
         if directions.is_empty() {
-            return;
+            continue;
         }
         // just to check if a change by this value brings as closer to the player
         let mov = Vec2::new(0.05, 0.05);
@@ -546,30 +610,39 @@ fn enemy_logic(
 
         // calculate the new velocity value based on the current speed and time
         // the size of the field on the timestep and the speed step
-        let frames = FPS * ENEMY_SPEED_STEP;
+        let frames = FPS * MOVE_SPEED;
         let value = sizes::field.x / frames;
-
-        velocity.0.x = directions[0].x * value;
-        velocity.0.y = directions[0].y * value;
+        velocity.direction = dbg!(directions[0]);
+        velocity.value = dbg!(value);
     }
 }
 
 fn keyboard_input_system(
     keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<&mut Velocity, With<Player>>,
+    mut query: Query<(&mut Movement, &Location), With<Player>>,
+    level: Res<Level>,
 ) {
-    let speed = PLAYER_SPEED;
-    for mut velocity in query.iter_mut() {
-        for (code, vector) in [
-            (KeyCode::Left, Vec2::new(-speed, 0.0)),
-            (KeyCode::Right, Vec2::new(speed, 0.0)),
-            (KeyCode::Up, Vec2::new(0.0, -speed)),
-            (KeyCode::Down, Vec2::new(0.0, speed)),
+    for (mut velocity, location) in query.iter_mut() {
+        // if we're in movement, do nothing
+        if velocity.value > 0.0 {
+            continue;
+        }
+        // make sure we only move into directions we can
+        for (code, direction) in [
+            (KeyCode::Left, Direction::new(-1, 0)),
+            (KeyCode::Right, Direction::new(1, 0)),
+            (KeyCode::Up, Direction::new(0, -1)),
+            (KeyCode::Down, Direction::new(0, 1)),
         ] {
             if keyboard_input.pressed(code) {
-                velocity.0 = vector;
+                let directions = level.free_directions(location.0);
+                if directions.contains(&direction) {
+                    velocity.direction = direction;
+                    velocity.value = sizes::field.x;
+                }
             } else if keyboard_input.just_released(code) {
-                velocity.0 = Vec2::default();
+                // velocity.direction = Direction::default();
+                // velocity.value = 0.0;
             }
         }
     }
@@ -577,22 +650,27 @@ fn keyboard_input_system(
 
 fn move_entities(
     // We need the entities that are being moved
-    mut query: Query<(&mut Transform, &Size, &mut Velocity), Without<Wall>>,
+    mut query: Query<(&mut Transform, &Size, &mut Movement, &mut Location), Without<Wall>>,
     // And the walls
     wall_query: Query<(&Transform, &Size), With<Wall>>,
+    level: Res<Level>,
 ) {
-    for (mut transform, size, mut velocity) in query.iter_mut() {
+    for (mut transform, size, mut velocity, mut location) in query.iter_mut() {
         // Ignore non-moving objects
-        if velocity.0.x == 0.0 && velocity.0.y == 0.0 {
+        if velocity.value <= 0.0 {
+            velocity.direction = Direction::default();
             continue;
         }
+        let frames = FPS * MOVE_SPEED;
+        let value = sizes::field.x / frames;
+        let vector = velocity.direction * Vec2::new(1.0, 1.0) * value;
         let new_translation = Vec3::new(
-            velocity.0.x + transform.translation.x,
+            vector.x + transform.translation.x,
             transform.translation.y,
-            velocity.0.y + transform.translation.z,
+            vector.y + transform.translation.z,
         );
         // Check if we collide with a wall
-        for (wall_transform, wall_size) in wall_query.iter() {
+        /*for (wall_transform, wall_size) in wall_query.iter() {
             // we perform a 2d collision
             let c = collide(
                 Vec3::new(
@@ -606,21 +684,24 @@ fn move_entities(
             );
             // If we collide, stop going into that direction
             if c.is_some() {
-                velocity.0 = Vec2::default();
+                velocity.direction = Direction::default();
+                velocity.value = 0.0;
                 return;
             }
-        }
+        }*/
         transform.translation = new_translation;
 
         // reduce the velocity based on the frame
-        let frames = dbg!(FPS * ENEMY_SPEED_STEP);
-        let value = dbg!(sizes::field.x / frames);
-        dbg!(value);
-        if velocity.0.x != 0.0 {
-            velocity.0.x -= value;
+        //dbg!(value);
+        if velocity.value >= 0.0 {
+            velocity.value -= value;
         }
-        if velocity.0.y != 0.0 {
-            velocity.0.y -= value;
+        // Otherwise, apply everything
+        if velocity.value <= 0.0 {
+            location.0.apply_direction(&velocity.direction);
+            velocity.direction = Direction::default();
+            velocity.value = 0.0;
+            transform.translation = level.translate_from_position(location.0);
         }
     }
 }
