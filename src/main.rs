@@ -70,7 +70,7 @@ fn init(
         });
 
         let floor_fg = materials.add(StandardMaterial {
-            base_color: Color::LIME_GREEN,
+            base_color: Color::GRAY,
             metallic: 0.5,
             reflectance: 0.75,
             ..Default::default()

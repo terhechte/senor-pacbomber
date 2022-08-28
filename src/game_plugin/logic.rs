@@ -125,6 +125,7 @@ pub fn finish_level(
     query: Query<Entity, With<LevelItem>>,
     mut current: ResMut<CurrentLevel>,
     mut app_state: ResMut<State<GameState>>,
+    mut score: ResMut<Score>,
 ) {
     let event = match reader.iter().next() {
         Some(n) => n,
@@ -141,6 +142,9 @@ pub fn finish_level(
             return;
         }
     };
+
+    // replenish the bombs
+    score.bombs = 3;
 
     commands.insert_resource(super::level::Level::new(next.0));
     commands.insert_resource(next);
