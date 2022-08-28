@@ -141,6 +141,9 @@ pub struct Block {
     pub level_position: Position,
 }
 
+#[derive(Debug, Component)]
+pub struct LevelEntity;
+
 // ################################################################################
 // Components
 // ################################################################################
@@ -203,8 +206,13 @@ impl Bomb {
 #[derive(Component)]
 pub struct BombExplosion;
 
+#[derive(Component)]
+pub struct LevelItem;
+
 // ################################################################################
 // Events
 // ################################################################################
 
 pub struct ShowLevelExitEvent;
+
+pub struct GoNextLevelEvent(pub usize);

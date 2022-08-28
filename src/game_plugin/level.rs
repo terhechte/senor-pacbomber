@@ -19,6 +19,10 @@ pub struct Level {
 }
 
 impl Level {
+    pub fn current(&self) -> usize {
+        0
+    }
+
     pub fn new(data: &str) -> Self {
         let mut rows: Vec<Vec<_>> = Vec::new();
 

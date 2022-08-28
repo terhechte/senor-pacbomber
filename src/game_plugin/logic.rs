@@ -6,9 +6,9 @@ use bevy_tweening::{
 };
 use std::{cmp::Ordering, f32::consts::TAU, time::Duration};
 
-use super::level::Level;
 use super::statics::{sizes, FPS};
 use super::types::*;
+use super::{level::Level, statics::LEVEL_COMPLETED_PAYLOAD};
 
 pub fn setup(
     mut commands: Commands,
@@ -16,112 +16,66 @@ pub fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut level: ResMut<Level>,
+    material_handles: Res<MaterialHandles>,
 ) {
-    let material_handles = {
-        let wall_normal = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
-        let wall_hidden = materials.add(Color::rgba(0.8, 0.7, 0.6, 0.3).into());
-        let coin = materials.add(StandardMaterial {
-            base_color: Color::YELLOW,
-            emissive: Color::rgb(0.1, 0.1, 0.1),
-            ..Default::default()
-        });
-
-        let player = materials.add(StandardMaterial {
-            base_color: Color::BLUE,
-            metallic: 0.5,
-            reflectance: 0.15,
-            ..Default::default()
-        });
-
-        let enemy = materials.add(StandardMaterial {
-            base_color: Color::RED,
-            ..Default::default()
-        });
-
-        let floor_bg = materials.add(StandardMaterial {
-            base_color: Color::DARK_GRAY,
-            metallic: 0.0,
-            reflectance: 0.15,
-            ..Default::default()
-        });
-
-        let floor_fg = materials.add(StandardMaterial {
-            base_color: Color::LIME_GREEN,
-            metallic: 0.5,
-            reflectance: 0.75,
-            ..Default::default()
-        });
-
-        let ground = materials.add(StandardMaterial {
-            base_color: Color::DARK_GRAY,
-            ..Default::default()
-        });
-
-        let bomb = materials.add(StandardMaterial {
-            base_color: Color::BLACK,
-            metallic: 1.0,
-            ..Default::default()
-        });
-
-        let explosion = materials.add(StandardMaterial {
-            base_color: Color::YELLOW,
-            emissive: Color::YELLOW,
-            ..Default::default()
-        });
-
-        MaterialHandles {
-            wall_normal,
-            wall_hidden,
-            coin,
-            player,
-            enemy,
-            floor_bg,
-            floor_fg,
-            bomb,
-            explosion,
-            ground,
-        }
-    };
+    // create the level entity
+    // let level_entity = commands.spawn().insert(LevelEntity).id();
 
     let mut enemies = Vec::new();
     let mut coins = Vec::new();
+
+    let mut children = Vec::new();
 
     for row in level.rows() {
         for block in row.iter() {
             // Each entry also needs a floor
             let is_exit = matches!(block.kind, BlockType::Exit);
-            setup_space(
+            children.push(setup_space(
                 &mut commands,
                 &mut meshes,
                 &material_handles,
                 (block.position.x, block.position.z),
                 is_exit,
-            );
+            ));
             match block.kind {
-                BlockType::WallBig => {
-                    setup_wall(&mut commands, &mut meshes, &material_handles, block)
-                }
-                BlockType::WallSmallV => {
-                    setup_wall(&mut commands, &mut meshes, &material_handles, block)
-                }
-                BlockType::WallSmallH => {
-                    setup_wall(&mut commands, &mut meshes, &material_handles, block)
-                }
+                BlockType::WallBig => children.push(setup_wall(
+                    &mut commands,
+                    &mut meshes,
+                    &material_handles,
+                    block,
+                )),
+                BlockType::WallSmallV => children.push(setup_wall(
+                    &mut commands,
+                    &mut meshes,
+                    &material_handles,
+                    block,
+                )),
+                BlockType::WallSmallH => children.push(setup_wall(
+                    &mut commands,
+                    &mut meshes,
+                    &material_handles,
+                    block,
+                )),
                 BlockType::Coin => {
                     let id = setup_coin(&mut commands, &mut meshes, &material_handles, block);
                     coins.push((id, block.level_position));
+                    children.push(id);
                 }
-                BlockType::Player => {
-                    setup_player(&mut commands, &mut meshes, &material_handles, block)
-                }
+                BlockType::Player => children.push(setup_player(
+                    &mut commands,
+                    &mut meshes,
+                    &material_handles,
+                    block,
+                )),
                 BlockType::Enemy => {
                     let id = setup_enemy(&mut commands, &mut meshes, &material_handles, block);
                     enemies.push((id, block.level_position));
+                    children.push(id);
                 }
                 BlockType::Space => {}
                 BlockType::Exit => {
                     let p = block.position;
-                    commands
+                    let id = commands
                         .spawn_bundle(SpotLightBundle {
                             spot_light: SpotLight {
                                 intensity: 100.0,
@@ -133,7 +87,9 @@ pub fn setup(
                             visibility: Visibility { is_visible: false },
                             ..default()
                         })
-                        .insert(ExitLight);
+                        .insert(ExitLight)
+                        .id();
+                    children.push(id);
                 }
             }
         }
@@ -147,31 +103,27 @@ pub fn setup(
         level.coin_positions.insert(id, pos);
     }
 
-    // light
-    commands.spawn_bundle(PointLightBundle {
-        point_light: PointLight {
-            intensity: 1500.0,
-            shadows_enabled: false,
-            ..default()
-        },
-        transform: Transform::from_xyz(0.0, 7.0, 0.5),
-        ..default()
-    });
-    commands.spawn_bundle(SpotLightBundle {
-        spot_light: SpotLight {
-            intensity: 2500.0,
-            shadows_enabled: true,
-            ..default()
-        },
-        transform: Transform::from_xyz(0.0, 7.0, 0.5).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
-    // camera
-    commands.spawn_bundle(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 5.5, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
-    commands.insert_resource(material_handles);
+    for id in children {
+        commands.entity(id).insert(LevelItem);
+    }
+
+    // commands.entity(level_entity).push_children(&children);
+}
+
+pub fn finish_level(
+    mut commands: Commands,
+    mut reader: EventReader<GoNextLevelEvent>,
+    query: Query<Entity, With<LevelItem>>,
+) {
+    let event = match reader.iter().next() {
+        Some(n) => n,
+        None => return,
+    };
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+    // and jump (somehow) to the next level
+    commands.insert_resource(super::level::Level::new(super::statics::LEVEL_DATA2))
 }
 
 pub fn setup_wall(
@@ -179,7 +131,7 @@ pub fn setup_wall(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &MaterialHandles,
     block: &Block,
-) {
+) -> Entity {
     let s = block.kind.size();
     let p = block.position;
     let wall_mesh = Mesh::from(shape::Box::new(s.x, s.y, s.z));
@@ -192,7 +144,8 @@ pub fn setup_wall(
         })
         .insert(Size(s))
         .insert(Location(block.level_position))
-        .insert(Wall);
+        .insert(Wall)
+        .id()
 }
 
 pub fn setup_coin(
@@ -226,7 +179,7 @@ pub fn setup_player(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &MaterialHandles,
     block: &Block,
-) {
+) -> Entity {
     let s = block.kind.size();
     let p = block.position;
     let mut player_mesh = Mesh::from(shape::Icosphere {
@@ -234,11 +187,11 @@ pub fn setup_player(
         subdivisions: 4,
     });
     player_mesh.generate_outline_normals().unwrap();
-    commands
+    let id = commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(player_mesh),
             material: materials.player.clone(),
-            transform: Transform::from_xyz(p.x, p.y, p.z),
+            transform: Transform::from_xyz(p.x, 1.0, p.z),
             ..default()
         })
         .insert_bundle(OutlineBundle {
@@ -253,7 +206,20 @@ pub fn setup_player(
         .insert(Movement::default())
         .insert(Location(block.level_position))
         .insert(Speed(0.3))
-        .insert(Player);
+        .insert(Player)
+        .id();
+    // add a tween so the player falls into the game
+    let tween = Tween::new(
+        EaseFunction::BounceOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(1.0),
+        TransformPositionLens {
+            start: Vec3::new(p.x, 1.0, p.z),
+            end: p,
+        },
+    );
+    commands.entity(id).insert(Animator::new(tween));
+    id
 }
 
 pub fn setup_enemy(
@@ -331,7 +297,7 @@ pub fn setup_space(
     materials: &MaterialHandles,
     position: (f32, f32),
     hides_exit: bool,
-) {
+) -> Entity {
     let parent = commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Plane {
@@ -369,6 +335,7 @@ pub fn setup_space(
         })
         .id();
     commands.entity(parent).push_children(&[child1, child2]);
+    parent
 }
 
 pub fn wobble(mut query: Query<(&mut Transform, &Wobbles)>, timer: Res<Time>, mut t: Local<f32>) {
@@ -568,7 +535,7 @@ pub fn update_level(
             }
         }
         // check if the player is over the exit
-        if level.ending_position == player_location.0 {
+        if level.ending_position == player_location.0 && level.ending_visible {
             // somehow jump to the next level
             player_enter_exit(&mut commands, player_entity, player_transform)
         }
@@ -597,9 +564,18 @@ pub fn update_level(
 }
 
 /// This removes all tweens that are done and had a complete handler set up
-pub fn tween_done_remove_handler(mut commands: Commands, mut done: EventReader<TweenCompleted>) {
+pub fn tween_done_remove_handler(
+    mut commands: Commands,
+    mut done: EventReader<TweenCompleted>,
+    mut writer: EventWriter<GoNextLevelEvent>,
+    level: Res<Level>,
+) {
     for ev in done.iter() {
-        commands.entity(ev.entity).despawn_recursive();
+        if ev.user_data == LEVEL_COMPLETED_PAYLOAD {
+            writer.send(GoNextLevelEvent(level.current()))
+        } else {
+            commands.entity(ev.entity).despawn_recursive();
+        }
     }
 }
 
@@ -693,10 +669,10 @@ pub fn show_level_exit(
 }
 
 fn player_enter_exit(commands: &mut Commands, entity: Entity, transform: &Transform) {
-    let tween = Tween::new(
+    let mut tween = Tween::new(
         EaseFunction::BounceOut,
         TweeningType::Once,
-        Duration::from_secs_f32(0.5),
+        Duration::from_secs_f32(0.7),
         TransformPositionLens {
             start: transform.translation,
             end: Vec3::new(
@@ -706,6 +682,7 @@ fn player_enter_exit(commands: &mut Commands, entity: Entity, transform: &Transf
             ),
         },
     );
+    tween.set_completed_event(LEVEL_COMPLETED_PAYLOAD);
     commands
         .entity(entity)
         .remove_bundle::<OutlineBundle>()
