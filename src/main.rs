@@ -21,7 +21,10 @@ use bevy::{
 };
 use bevy_mod_outline::*;
 use bevy_tweening::{
-    lens::TransformScaleLens, Animator, EaseFunction, Tween, TweenCompleted, TweeningPlugin,
+    lens::{
+        TransformPositionLens, TransformRotateXLens, TransformRotationLens, TransformScaleLens,
+    },
+    Animator, Delay, EaseFunction, Sequence, Tracks, Tween, TweenCompleted, TweeningPlugin,
     TweeningType,
 };
 use std::{
@@ -34,12 +37,12 @@ use std::{
 
 const LEVEL_DATA: &str = r#"
 #----------   ----------#
-| * * * * *o** * * * *  |
+| * * * * * ** * * * *  |
 | ##---- #-----# ----## |
-| #* *   #x    #   * *# |
+| #* *   #  x  #   * *# |
   #----  # ### #  ----#  
 | * * * * *   * * * * * |
-| --#--- ##   ## ---#-- |
+| --#--- ## o ## ---#-- |
 |  *|*             *|*  |
 #----------   ----------#
 "#;
@@ -137,6 +140,10 @@ impl Direction {
     fn new(x: i8, z: i8) -> Self {
         Self { x, z }
     }
+
+    fn is_zero(&self) -> bool {
+        self.x == 0 && self.z == 0
+    }
 }
 
 impl Mul<Vec2> for Direction {
@@ -146,6 +153,17 @@ impl Mul<Vec2> for Direction {
         Vec2 {
             x: (self.x as f32).mul(rhs.x),
             y: (self.z as f32).mul(rhs.y),
+        }
+    }
+}
+
+impl Mul<i8> for Direction {
+    type Output = Direction;
+    #[inline]
+    fn mul(self, rhs: i8) -> Direction {
+        Direction {
+            x: self.x * rhs,
+            z: self.z * rhs,
         }
     }
 }
@@ -165,6 +183,8 @@ struct Level {
     player_position: Position,
     enemy_positions: HashMap<Entity, Position>,
     coin_positions: HashMap<Entity, Position>,
+    bombs: HashMap<Entity, (usize, Position)>,
+    bomb_size: usize,
 }
 
 impl Level {
@@ -217,6 +237,8 @@ impl Level {
             player_position,
             enemy_positions: HashMap::new(),
             coin_positions: HashMap::new(),
+            bombs: HashMap::new(),
+            bomb_size: 5,
         }
     }
 
@@ -233,6 +255,80 @@ impl Level {
         }
         let item = self.rows[az as usize][ax as usize];
         Some(item)
+    }
+
+    fn place_bomb(&mut self, entity: Entity, position: Position) {
+        self.bombs.insert(entity, (self.bomb_size, position));
+    }
+
+    // All positions where the bomb will go except for walls
+    // returns: (Position, current range, max range)
+    fn bomb_explode_positions(&self, entity: Entity) -> Vec<(Position, usize, usize)> {
+        let (range, position) = match self.bombs.get(&entity) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+        let mut results = vec![(*position, 0, *range)];
+        fn follow_range(
+            level: &Level,
+            range: i8,
+            position: Position,
+            direction: Direction,
+            into: &mut Vec<(Position, usize, usize)>,
+        ) {
+            let mut current_range = 1;
+            loop {
+                let current = direction * current_range;
+                let (x, z) = (position.x as i8 + current.x, position.z as i8 + current.z);
+                let item = match level.get(x, z) {
+                    Some(n) => n,
+                    None => break,
+                };
+                if item.kind.is_wall() {
+                    break;
+                }
+                into.push((
+                    Position::new(x as usize, z as usize),
+                    current_range as usize,
+                    range as usize,
+                ));
+                current_range += 1;
+                if range == current_range {
+                    break;
+                }
+            }
+        }
+        // go in all 4 directions
+        follow_range(
+            self,
+            *range as i8,
+            *position,
+            Direction::new(-1, 0),
+            &mut results,
+        );
+        follow_range(
+            self,
+            *range as i8,
+            *position,
+            Direction::new(0, -1),
+            &mut results,
+        );
+        follow_range(
+            self,
+            *range as i8,
+            *position,
+            Direction::new(1, 0),
+            &mut results,
+        );
+        follow_range(
+            self,
+            *range as i8,
+            *position,
+            Direction::new(0, 1),
+            &mut results,
+        );
+
+        results
     }
 
     fn translate_from_position(&self, position: Position) -> Vec3 {
@@ -320,6 +416,7 @@ mod sizes {
     pub const brick_small: f32 = 0.1;
     pub const coin: Vec3 = Vec3::new(0.10, 0.05, 0.1);
     pub const enemy: Vec3 = Vec3::new(0.10, 0.05, 0.1);
+    pub const bomb_size: f32 = 0.15;
 }
 
 #[derive(Component)]
@@ -361,6 +458,19 @@ struct Score {
     moves: usize,
 }
 
+#[derive(Component)]
+struct Bomb(f32);
+
+impl Bomb {
+    fn new() -> Self {
+        // Default bomb time is 2.5 seconds until explode
+        Bomb(2.5)
+    }
+}
+
+#[derive(Component)]
+struct BombExplosion;
+
 const FPS: f32 = 60.0;
 const TIME_STEP: f32 = 1.0 / FPS;
 
@@ -384,7 +494,9 @@ fn main() {
         .add_system(keyboard_input_system)
         .add_system(wall_visibility)
         .add_system(update_level)
-        .add_system(coin_tween_done_event_handler)
+        .add_system(tween_done_remove_handler)
+        .add_system(bomb_counter)
+        .add_system(bomb_explosion_destruction)
         .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
@@ -617,6 +729,51 @@ fn setup_enemy(
         .id()
 }
 
+fn add_bomb(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &MaterialHandles,
+    level_position: Position,
+    position: Vec3,
+) -> Entity {
+    let enemy_mesh = Mesh::from(shape::Cube {
+        size: sizes::bomb_size,
+    });
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(enemy_mesh),
+            material: materials.enemy.clone(),
+            transform: Transform::from_xyz(position.x, position.y, position.z),
+            ..default()
+        })
+        .insert(Location(level_position))
+        .insert(Bomb::new())
+        .id()
+}
+
+fn add_bomb_explosion(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &MaterialHandles,
+    level_position: Position,
+    position: Vec3,
+) -> Entity {
+    let enemy_mesh = Mesh::from(shape::Cube {
+        size: sizes::bomb_size,
+    });
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(enemy_mesh),
+            material: materials.coin.clone(),
+            transform: Transform::from_xyz(position.x, position.y, position.z)
+                .with_scale(Vec3::ZERO),
+            ..default()
+        })
+        .insert(Location(level_position))
+        .insert(BombExplosion)
+        .id()
+}
+
 fn setup_space(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -709,9 +866,13 @@ fn enemy_logic(
 }
 
 fn keyboard_input_system(
+    mut commands: Commands,
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Movement, &Location), With<Player>>,
-    level: Res<Level>,
+    mut level: ResMut<Level>,
+    mut score: ResMut<Score>,
+    material_handles: Res<MaterialHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
     for (mut velocity, location) in query.iter_mut() {
         // if we're in movement, do nothing
@@ -730,9 +891,29 @@ fn keyboard_input_system(
                 if directions.contains(&direction) {
                     velocity.direction = direction;
                     velocity.value = sizes::field.x;
+                    score.moves += 1;
                 }
             }
         }
+    }
+    // if the user tried to place a bomb
+    let level_position = level.player_position;
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        // if there is no bomb yet
+        for (_, position) in level.bombs.values() {
+            if &level_position == position {
+                return;
+            }
+        }
+        let position = level.translate_from_position(level_position);
+        let id = add_bomb(
+            &mut commands,
+            &mut meshes,
+            &material_handles,
+            level_position,
+            position,
+        );
+        level.place_bomb(id, level_position);
     }
 }
 
@@ -843,10 +1024,184 @@ fn update_level(
     }
 }
 
-fn coin_tween_done_event_handler(mut commands: Commands, mut done: EventReader<TweenCompleted>) {
+/// This removes all tweens that are done and had a complete handler set up
+fn tween_done_remove_handler(mut commands: Commands, mut done: EventReader<TweenCompleted>) {
     for ev in done.iter() {
         commands.entity(ev.entity).despawn_recursive();
     }
+}
+
+fn bomb_counter(
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut Bomb)>,
+    time: Res<Time>,
+    mut level: ResMut<Level>,
+    material_handles: Res<MaterialHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let change = time.delta_seconds();
+    for (entity, mut bomb) in query.iter_mut() {
+        bomb.0 -= change;
+        if bomb.0 <= 0.0 {
+            commands.entity(entity).despawn_recursive();
+            // spawn the explosions
+            for (level_position, strength, max) in level.bomb_explode_positions(entity) {
+                let delay_sec = (strength as f32 / max as f32) / 2.0;
+                let position = level.translate_from_position(level_position);
+                let id = add_bomb_explosion(
+                    &mut commands,
+                    &mut meshes,
+                    &material_handles,
+                    level_position,
+                    position,
+                );
+                insert_bomb_explosion_tween(&mut commands, id, delay_sec);
+            }
+            level.bombs.remove(&entity);
+        }
+    }
+}
+
+// if enemy or player interacts with a bomb explosion, remove them
+fn bomb_explosion_destruction(
+    mut commands: Commands,
+    explosion_query: Query<(Entity, &Location), With<BombExplosion>>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    mut level: ResMut<Level>,
+) {
+    let mut removable_enemies = Vec::new();
+    for (entity, location) in explosion_query.iter() {
+        if level.player_position == location.0 {
+            println!("GAME OVER");
+        }
+        for (entity, transform) in enemy_query.iter() {
+            if level.enemy_positions[&entity] == location.0 {
+                kill_enemy(&mut commands, entity, &transform);
+                removable_enemies.push(entity);
+            }
+        }
+    }
+    for entity in removable_enemies {
+        level.enemy_positions.remove(&entity);
+    }
+}
+
+fn kill_enemy(commands: &mut Commands, entity: Entity, transform: &Transform) {
+    let duration = 0.3;
+    // We scale the enemy
+    let tween1 = Tween::new(
+        EaseFunction::BounceOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(duration),
+        TransformScaleLens {
+            start: Vec3::new(1.0, 1.0, 1.0),
+            end: Vec3::new(0.5, 0.5, 0.5),
+        },
+    );
+    // We move it up
+    let tween2 = Tween::new(
+        EaseFunction::BounceOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(duration),
+        TransformPositionLens {
+            start: transform.translation,
+            end: Vec3::new(
+                transform.translation.x,
+                transform.translation.y + 2.1,
+                transform.translation.z,
+            ),
+        },
+    );
+    // We rotate it
+    let tween3 = Tween::new(
+        EaseFunction::BounceOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(duration),
+        TransformRotationLens {
+            start: transform.rotation,
+            end: transform
+                .rotation
+                .mul_quat(Quat::from_euler(EulerRot::XYZ, 1.3, 1.5, 0.7)),
+        },
+    );
+    let step1 = Tracks::new([tween1, tween2, tween3]);
+    // finally, we pop it out
+    let mut step2 = Tween::new(
+        EaseFunction::ExponentialOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(0.1),
+        TransformScaleLens {
+            start: Vec3::new(0.5, 0.5, 0.5),
+            end: Vec3::ZERO,
+        },
+    );
+    step2.set_completed_event(0);
+    let series = Sequence::from_single(step1).then(step2);
+    commands
+        .entity(entity)
+        .remove::<Enemy>()
+        .remove::<Movement>()
+        .remove::<Speed>()
+        .insert(Animator::new(series));
+}
+
+fn insert_bomb_explosion_tween(commands: &mut Commands, entity: Entity, delay_sec: f32) {
+    let step = 0.10;
+    // build up the explosion tweens
+    let tween1 = Tween::new(
+        EaseFunction::BounceInOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(step),
+        TransformScaleLens {
+            start: Vec3::ZERO,
+            end: Vec3::new(1.0, 1.0, 1.0),
+        },
+    );
+    let tween2 = Tween::new(
+        EaseFunction::BounceInOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(step),
+        TransformScaleLens {
+            start: Vec3::new(1.0, 1.0, 1.0),
+            end: Vec3::new(0.75, 0.75, 0.75),
+        },
+    );
+    let tween3 = Tween::new(
+        EaseFunction::BounceInOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(step),
+        TransformScaleLens {
+            start: Vec3::new(0.75, 0.75, 0.75),
+            end: Vec3::new(0.85, 0.85, 0.85),
+        },
+    );
+    let tween4 = Tween::new(
+        EaseFunction::BounceInOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(step),
+        TransformScaleLens {
+            start: Vec3::new(0.85, 0.85, 0.85),
+            end: Vec3::new(0.5, 0.5, 0.5),
+        },
+    );
+    let mut tween5 = Tween::new(
+        EaseFunction::BounceInOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(step),
+        TransformScaleLens {
+            start: Vec3::new(0.5, 0.5, 0.5),
+            end: Vec3::ZERO,
+        },
+    );
+    tween5.set_completed_event(0);
+    let delay = Delay::new(Duration::from_secs_f32(delay_sec));
+    let s = delay
+        .then(tween1)
+        .then(tween2)
+        .then(tween3)
+        .then(tween4)
+        .then(tween5);
+    commands.entity(entity).insert(Animator::new(s));
 }
 
 #[cfg(test)]
