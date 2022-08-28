@@ -15,7 +15,7 @@ impl Plugin for LostPlugin {
         app.add_system_set(SystemSet::on_enter(GameState::Lost).with_system(setup))
             .add_system_set(SystemSet::on_exit(GameState::Lost).with_system(exit))
             .add_system_set(
-                SystemSet::on_update(GameState::Menu)
+                SystemSet::on_update(GameState::Lost)
                     .with_system(keyboard_input_system)
                     .with_system(button_system),
             );
@@ -80,7 +80,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                             size: Size::new(Val::Px(700.0), Val::Px(270.0)),
                             ..default()
                         },
-                        image: asset_server.load("images/won.png").into(),
+                        image: asset_server.load("images/lost.png").into(),
                         ..default()
                     });
                 });

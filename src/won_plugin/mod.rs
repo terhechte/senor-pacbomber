@@ -15,7 +15,7 @@ impl Plugin for WonPlugin {
         app.add_system_set(SystemSet::on_enter(GameState::Won).with_system(setup))
             .add_system_set(SystemSet::on_exit(GameState::Won).with_system(exit))
             .add_system_set(
-                SystemSet::on_update(GameState::Menu)
+                SystemSet::on_update(GameState::Won)
                     .with_system(keyboard_input_system)
                     .with_system(button_system),
             );

@@ -145,7 +145,7 @@ pub struct CurrentLevel(pub usize);
 
 impl CurrentLevel {
     pub fn next(&self) -> Option<CurrentLevel> {
-        if self.0 >= LEVELS.len() {
+        if (self.0 + 1) >= LEVELS.len() {
             return None;
         }
         Some(CurrentLevel(self.0 + 1))
