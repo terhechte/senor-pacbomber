@@ -16,6 +16,7 @@ pub enum GameState {
 
 fn main() {
     App::new()
+        .insert_resource(game_plugin::Score::default())
         .insert_resource(ClearColor(Color::rgb(20. / 255., 20. / 255., 20. / 255.)))
         .insert_resource(WindowDescriptor {
             title: "I am a window!".to_string(),

@@ -17,7 +17,6 @@ pub const USER_DIED_PAYLOAD: u64 = 43;
 
 pub const PLAYER_SPEED: f32 = 0.25;
 pub const ENEMY_SPEED_EASY: f32 = 0.5;
-pub const ENEMY_SPEED_QUICK: f32 = 0.15;
 
 pub const LEVELS: &[&str] = &[L1, L2, L3];
 

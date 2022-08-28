@@ -2,7 +2,7 @@ mod level;
 mod logic;
 mod statics;
 mod types;
-mod ui;
+pub mod ui;
 
 use bevy::prelude::*;
 use bevy_mod_outline::*;
@@ -13,13 +13,13 @@ use self::types::{GoNextLevelEvent, PlayerDiedEvent, ShowLevelExitEvent};
 use super::GameState;
 
 pub use types::MaterialHandles;
+pub use types::{CurrentLevel, Score};
 
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(types::Score::default())
-            .add_plugin(OutlinePlugin)
+        app.add_plugin(OutlinePlugin)
             .add_plugin(TweeningPlugin)
             .add_event::<ShowLevelExitEvent>()
             .add_event::<GoNextLevelEvent>()

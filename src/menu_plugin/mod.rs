@@ -69,7 +69,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 "Start",
                                 TextStyle {
                                     font: asset_server.load("fonts/Archivo-Bold.ttf"),
-                                    font_size: 40.0,
+                                    font_size: 20.0,
                                     color: Color::rgb(0.9, 0.9, 0.9),
                                 },
                             ));
@@ -77,7 +77,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     // bevy logo (image)
                     parent.spawn_bundle(ImageBundle {
                         style: Style {
-                            size: Size::new(Val::Px(700.0), Val::Px(571.0)),
+                            size: Size::new(Val::Px(900.0), Val::Px(538.0)),
                             ..default()
                         },
                         image: asset_server.load("images/title.png").into(),

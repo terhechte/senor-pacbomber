@@ -1,4 +1,7 @@
-use crate::GameState;
+use crate::{
+    game_plugin::{CurrentLevel, Score},
+    GameState,
+};
 use bevy::prelude::*;
 
 pub struct LostPlugin;
@@ -22,7 +25,13 @@ impl Plugin for LostPlugin {
     }
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    score: Res<Score>,
+    level: Res<CurrentLevel>,
+) {
+    let won_text = format!("Level {}, {} Points", level.0 + 1, score.coins);
     commands
         .spawn_bundle(NodeBundle {
             style: Style {
@@ -52,7 +61,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     parent
                         .spawn_bundle(ButtonBundle {
                             style: Style {
-                                size: Size::new(Val::Px(150.0), Val::Px(65.0)),
+                                size: Size::new(Val::Px(250.0), Val::Px(65.0)),
                                 // center button
                                 margin: UiRect::all(Val::Auto),
                                 // horizontally center child text
@@ -69,15 +78,23 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 "Play Again",
                                 TextStyle {
                                     font: asset_server.load("fonts/Archivo-Bold.ttf"),
-                                    font_size: 40.0,
+                                    font_size: 30.0,
                                     color: Color::rgb(0.9, 0.9, 0.9),
                                 },
                             ));
                         });
+                    parent.spawn_bundle(TextBundle::from_section(
+                        won_text,
+                        TextStyle {
+                            font: asset_server.load("fonts/Archivo-Bold.ttf"),
+                            font_size: 40.0,
+                            color: Color::rgb(1.0, 1.0, 0.0),
+                        },
+                    ));
                     // bevy logo (image)
                     parent.spawn_bundle(ImageBundle {
                         style: Style {
-                            size: Size::new(Val::Px(700.0), Val::Px(571.0)),
+                            size: Size::new(Val::Px(700.0), Val::Px(452.0)),
                             ..default()
                         },
                         image: asset_server.load("images/lost.png").into(),

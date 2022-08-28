@@ -107,10 +107,6 @@ impl BoardDirection {
     pub fn new(x: i8, z: i8) -> Self {
         Self { x, z }
     }
-
-    pub fn is_zero(&self) -> bool {
-        self.x == 0 && self.z == 0
-    }
 }
 
 impl Mul<Vec2> for BoardDirection {
