@@ -144,6 +144,8 @@ pub struct Block {
 #[derive(Debug, Component)]
 pub struct LevelEntity;
 
+pub struct CurrentLevel(pub usize);
+
 // ################################################################################
 // Components
 // ################################################################################

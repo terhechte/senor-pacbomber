@@ -23,10 +23,11 @@ impl Plugin for GamePlugin {
             .add_plugin(TweeningPlugin)
             .add_event::<ShowLevelExitEvent>()
             .add_event::<GoNextLevelEvent>()
-            .add_system_set(SystemSet::on_enter(GameState::Game).with_system(logic::setup))
+            .add_system_set(SystemSet::on_enter(GameState::Game).with_system(logic::first_level))
             // .add_system_set(SystemSet::on_exit(GameState::Game).with_system(logic::exit))
             .add_system_set(
                 SystemSet::on_update(GameState::Game)
+                    .with_system(logic::level_loading)
                     .with_system(logic::wobble)
                     .with_system(logic::keyboard_input_system)
                     .with_system(logic::wall_visibility)

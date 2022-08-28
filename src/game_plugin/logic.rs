@@ -10,16 +10,26 @@ use super::statics::{sizes, FPS};
 use super::types::*;
 use super::{level::Level, statics::LEVEL_COMPLETED_PAYLOAD};
 
-pub fn setup(
+pub fn first_level(mut commands: Commands) {
+    commands.insert_resource(super::level::Level::new(super::statics::LEVEL_DATA));
+    commands.insert_resource(CurrentLevel(0));
+    commands.insert_resource(super::types::Score::default());
+}
+
+pub fn level_loading(
     mut commands: Commands,
     mut assets: ResMut<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut level: ResMut<Level>,
+    current_level: Res<CurrentLevel>,
     material_handles: Res<MaterialHandles>,
 ) {
-    // create the level entity
-    // let level_entity = commands.spawn().insert(LevelEntity).id();
+    println!("DETERMINE LEVEL CHANGE");
+    // only setup a new level if the level changed
+    if !current_level.is_changed() {
+        println!("NO CHANGE TO LEVEL");
+        return;
+    }
 
     let mut enemies = Vec::new();
     let mut coins = Vec::new();
@@ -106,8 +116,6 @@ pub fn setup(
     for id in children {
         commands.entity(id).insert(LevelItem);
     }
-
-    // commands.entity(level_entity).push_children(&children);
 }
 
 pub fn finish_level(
@@ -123,7 +131,8 @@ pub fn finish_level(
         commands.entity(entity).despawn_recursive();
     }
     // and jump (somehow) to the next level
-    commands.insert_resource(super::level::Level::new(super::statics::LEVEL_DATA2))
+    commands.insert_resource(super::level::Level::new(super::statics::LEVEL_DATA2));
+    commands.insert_resource(CurrentLevel(1));
 }
 
 pub fn setup_wall(
