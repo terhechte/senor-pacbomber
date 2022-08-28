@@ -8,7 +8,7 @@ use std::{cmp::Ordering, f32::consts::TAU, time::Duration};
 
 use crate::GameState;
 
-use super::statics::{sizes, FPS, USER_DIED_PAYLOAD};
+use super::statics::{self, sizes, FPS, USER_DIED_PAYLOAD};
 use super::types::*;
 use super::{level::Level, statics::LEVEL_COMPLETED_PAYLOAD};
 
@@ -231,7 +231,7 @@ pub fn setup_player(
         .insert(Size(s))
         .insert(Movement::default())
         .insert(Location(block.level_position))
-        .insert(Speed(0.1))
+        .insert(Speed(statics::PLAYER_SPEED))
         .insert(Player)
         .id();
     // add a tween so the player falls into the game
@@ -257,19 +257,55 @@ pub fn setup_enemy(
     let s = block.kind.size();
     let p = block.position;
     let enemy_mesh = Mesh::from(shape::Cube { size: 0.2 });
-    commands
+    let parent = commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(enemy_mesh),
             material: materials.enemy.clone(),
             transform: Transform::from_xyz(p.x, p.y, p.z),
             ..default()
         })
+        .id();
+    let eye1 = commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.08 })),
+            material: materials.white.clone(),
+            transform: Transform::from_xyz(0.1, 0.01, 0.01),
+            ..default()
+        })
+        .id();
+    let eye2 = commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.08 })),
+            material: materials.white.clone(),
+            transform: Transform::from_xyz(-0.1, 0.01, 0.01),
+            ..default()
+        })
+        .id();
+    let eye3 = commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.08 })),
+            material: materials.white.clone(),
+            transform: Transform::from_xyz(0.01, 0.01, 0.1),
+            ..default()
+        })
+        .id();
+    let eye4 = commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.08 })),
+            material: materials.white.clone(),
+            transform: Transform::from_xyz(0.01, 0.01, -0.1),
+            ..default()
+        })
+        .id();
+    commands
+        .entity(parent)
+        .push_children(&[eye1, eye2, eye3, eye4])
         .insert(Size(s))
         .insert(Movement::default())
         .insert(Location(block.level_position))
-        .insert(Speed(0.2))
-        .insert(Enemy)
-        .id()
+        .insert(Speed(statics::ENEMY_SPEED_EASY))
+        .insert(Enemy);
+    parent
 }
 
 pub fn add_bomb(
@@ -282,16 +318,40 @@ pub fn add_bomb(
     let mesh = Mesh::from(shape::Cube {
         size: sizes::bomb_size,
     });
-    commands
+    let parent = commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(mesh),
             material: materials.bomb.clone(),
             transform: Transform::from_xyz(position.x, position.y, position.z),
             ..default()
         })
+        .id();
+    let head = commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Cube {
+                size: sizes::bomb_size / 4.0,
+            })),
+            material: materials.white.clone(),
+            transform: Transform::from_xyz(0.0, sizes::bomb_size / 2.0, 0.0),
+            ..default()
+        })
+        .id();
+    let fire = commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Cube {
+                size: sizes::bomb_size / 5.0,
+            })),
+            material: materials.explosion.clone(),
+            transform: Transform::from_xyz(0.0, sizes::bomb_size / 2.0 + 0.05, 0.0),
+            ..default()
+        })
+        .id();
+    commands
+        .entity(parent)
+        .push_children(&[head, fire])
         .insert(Location(level_position))
-        .insert(Bomb::new())
-        .id()
+        .insert(Bomb::new());
+    parent
 }
 
 pub fn add_bomb_explosion(
@@ -380,6 +440,12 @@ pub fn wobble(mut query: Query<(&mut Transform, &Wobbles)>, timer: Res<Time>, mu
     }
 }
 
+pub fn wobble_enemy(mut query: Query<&mut Transform, With<Enemy>>, timer: Res<Time>) {
+    for mut transform in query.iter_mut() {
+        transform.translation.y = (timer.seconds_since_startup().sin() as f32) / 50.0;
+    }
+}
+
 pub fn enemy_logic(
     mut query: Query<(&mut Movement, &Transform, &Location, &Speed), With<Enemy>>,
     timer: Res<Time>,
@@ -460,6 +526,11 @@ pub fn keyboard_input_system(
     // if the user tried to place a bomb
     let level_position = level.player_position;
     if keyboard_input.just_pressed(KeyCode::Space) {
+        // if we don't have bombs left
+        if score.bombs == 0 {
+            return;
+        }
+        score.bombs -= 1;
         // if there is no bomb yet
         for (_, position) in level.bombs.values() {
             if &level_position == position {

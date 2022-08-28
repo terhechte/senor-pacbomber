@@ -32,6 +32,7 @@ impl Plugin for GamePlugin {
                 SystemSet::on_update(GameState::Game)
                     .with_system(logic::level_loading)
                     .with_system(logic::wobble)
+                    .with_system(logic::wobble_enemy)
                     .with_system(logic::keyboard_input_system)
                     .with_system(logic::wall_visibility)
                     .with_system(logic::update_level)

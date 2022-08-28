@@ -71,6 +71,7 @@ pub struct MaterialHandles {
     pub ground: Handle<StandardMaterial>,
     pub bomb: Handle<StandardMaterial>,
     pub explosion: Handle<StandardMaterial>,
+    pub white: Handle<StandardMaterial>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default, Hash)]
