@@ -9,3 +9,4 @@ edition = "2021"
 #bevy = { git = "https://github.com/bevyengine/bevy", rev = "2fa7b3b6d0d5e5e7e48ae1c68affa4edc65cbe6a" }
 bevy = "0.8"
 bevy_mod_outline = "0.2.2"
+bevy_tweening = "0.5.0"

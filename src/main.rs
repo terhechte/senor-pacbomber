@@ -1,3 +1,9 @@
+//! Tasks
+//! - [ ] update the level with player and enemy positions
+//! - [ ] make a level twice as high
+//! - [ ] when a level is done, open a hole, going in there, falling into the next level
+//! - [ ] add bomb update item to increase bomb range
+
 use bevy::{
     pbr::{MaterialPipeline, MaterialPipelineKey},
     prelude::*,
@@ -10,9 +16,14 @@ use bevy::{
     },
     sprite::collide_aabb::collide,
     time::FixedTimestep,
+    utils::HashMap,
     window::close_on_esc,
 };
 use bevy_mod_outline::*;
+use bevy_tweening::{
+    lens::TransformScaleLens, Animator, EaseFunction, Tween, TweenCompleted, TweeningPlugin,
+    TweeningType,
+};
 use std::{
     cmp::Ordering,
     collections::HashSet,
@@ -151,6 +162,9 @@ struct Level {
     size: Position,
     offsets: (f32, f32),
     rows: Vec<Vec<Block>>,
+    player_position: Position,
+    enemy_positions: HashMap<Entity, Position>,
+    coin_positions: HashMap<Entity, Position>,
 }
 
 impl Level {
@@ -165,6 +179,8 @@ impl Level {
         let z_size = lines.len();
         let mut x_size = 0;
 
+        let mut player_position: Option<Position> = None;
+
         for (x_index, line) in lines.iter().enumerate() {
             let chars: Vec<char> = line.chars().collect();
             x_size = chars.len();
@@ -176,19 +192,31 @@ impl Level {
                     ((z_index as f32 * v_b.z) - x_offset) + v_b.z / 2.0,
                 );
 
+                let level_position = Position::new(z_index, x_index);
+
+                if matches!(block, BlockType::Player) {
+                    player_position = Some(level_position);
+                }
+
                 row.push(Block {
                     kind: block,
                     position: Vec3::new(position.1, 0.0, position.0),
-                    level_position: Position::new(z_index, x_index),
+                    level_position,
                 })
             }
 
             rows.push(row);
         }
+
+        let player_position = player_position.expect("Expect a player position in the level!");
+
         Level {
             size: Position::new(x_size, z_size),
             offsets: (x_offset, z_offset),
             rows,
+            player_position,
+            enemy_positions: HashMap::new(),
+            coin_positions: HashMap::new(),
         }
     }
 
@@ -205,16 +233,6 @@ impl Level {
         }
         let item = self.rows[az as usize][ax as usize];
         Some(item)
-    }
-
-    fn translate_to_position(&self, position: Vec3) -> Position {
-        let offsets = Vec3::new(self.offsets.0, 0.0, self.offsets.1);
-        let size = offsets * 2.;
-        let item = Vec3::new(self.size.x as f32, 0., self.size.z as f32) / size;
-        Position {
-            x: ((position.x + offsets.x) * item.x) as usize,
-            z: ((position.z + offsets.z) * item.z) as usize,
-        }
     }
 
     fn translate_from_position(&self, position: Position) -> Vec3 {
@@ -337,6 +355,12 @@ struct Size(Vec3);
 #[derive(Component, Default)]
 struct Speed(f32);
 
+#[derive(Component, Default)]
+struct Score {
+    coins: usize,
+    moves: usize,
+}
+
 const FPS: f32 = 60.0;
 const TIME_STEP: f32 = 1.0 / FPS;
 
@@ -349,14 +373,18 @@ fn main() {
             // resizable: false,
             ..default()
         })
+        .insert_resource(Score::default())
         .insert_resource(Level::new(LEVEL_DATA))
         .add_plugins(DefaultPlugins)
         .add_plugin(OutlinePlugin)
+        .add_plugin(TweeningPlugin)
         .add_startup_system(setup)
         .add_system(close_on_esc)
         .add_system(wobble)
         .add_system(keyboard_input_system)
         .add_system(wall_visibility)
+        .add_system(update_level)
+        .add_system(coin_tween_done_event_handler)
         .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
@@ -371,7 +399,7 @@ fn setup(
     mut assets: ResMut<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    level: Res<Level>,
+    mut level: ResMut<Level>,
 ) {
     let material_handles = {
         let wall_normal = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
@@ -419,6 +447,9 @@ fn setup(
         }
     };
 
+    let mut enemies = Vec::new();
+    let mut coins = Vec::new();
+
     for row in level.rows() {
         for block in row.iter() {
             // Each entry also needs a floor
@@ -438,16 +469,28 @@ fn setup(
                 BlockType::WallSmallH => {
                     setup_wall(&mut commands, &mut meshes, &material_handles, block)
                 }
-                BlockType::Coin => setup_coin(&mut commands, &mut meshes, &material_handles, block),
+                BlockType::Coin => {
+                    let id = setup_coin(&mut commands, &mut meshes, &material_handles, block);
+                    coins.push((id, block.level_position));
+                }
                 BlockType::Player => {
                     setup_player(&mut commands, &mut meshes, &material_handles, block)
                 }
                 BlockType::Enemy => {
-                    setup_enemy(&mut commands, &mut meshes, &material_handles, block)
+                    let id = setup_enemy(&mut commands, &mut meshes, &material_handles, block);
+                    enemies.push((id, block.level_position));
                 }
                 BlockType::Space => {}
             }
         }
+    }
+
+    for (id, pos) in enemies {
+        level.enemy_positions.insert(id, pos);
+    }
+
+    for (id, pos) in coins {
+        level.coin_positions.insert(id, pos);
     }
 
     // light
@@ -494,7 +537,7 @@ fn setup_coin(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &MaterialHandles,
     block: &Block,
-) {
+) -> Entity {
     let s = block.kind.size();
     let p = block.position;
     let coin_mesh = Mesh::from(shape::Torus {
@@ -511,7 +554,8 @@ fn setup_coin(
             ..default()
         })
         .insert(Wobbles(p.x * p.z))
-        .insert(Coin);
+        .insert(Coin)
+        .id()
 }
 
 fn setup_player(
@@ -554,7 +598,7 @@ fn setup_enemy(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &MaterialHandles,
     block: &Block,
-) {
+) -> Entity {
     let s = block.kind.size();
     let p = block.position;
     let enemy_mesh = Mesh::from(shape::Cube { size: 0.2 });
@@ -569,7 +613,8 @@ fn setup_enemy(
         .insert(Movement::default())
         .insert(Location(block.level_position))
         .insert(Speed(0.7))
-        .insert(Enemy);
+        .insert(Enemy)
+        .id()
 }
 
 fn setup_space(
@@ -750,6 +795,57 @@ fn wall_visibility(
                 .remove::<Handle<StandardMaterial>>()
                 .insert(materials.wall_normal.clone());
         }
+    }
+}
+
+/// Updates the level whenever player or enemy change their location
+#[allow(clippy::type_complexity)]
+fn update_level(
+    mut commands: Commands,
+    mut level: ResMut<Level>,
+    player_query: Query<&Location, (With<Player>, Changed<Location>)>,
+    enemy_query: Query<(Entity, &Location), (With<Enemy>, Changed<Location>)>,
+    mut score: ResMut<Score>,
+) {
+    for (entity, location) in enemy_query.iter() {
+        level.enemy_positions.insert(entity, location.0);
+    }
+    if let Some(player_location) = player_query.iter().next() {
+        level.player_position = player_location.0;
+        // check if player and enemies collide
+        for position in level.enemy_positions.values() {
+            if position == &player_location.0 {
+                println!("DEAD");
+                // FIXME: State trigger
+            }
+        }
+        let mut deleted_coins = Vec::new();
+        for (entity, position) in level.coin_positions.iter() {
+            if position == &player_location.0 {
+                let mut tween = Tween::new(
+                    EaseFunction::QuadraticInOut,
+                    TweeningType::Once,
+                    Duration::from_secs_f32(0.5),
+                    TransformScaleLens {
+                        start: Vec3::new(1.0, 1.0, 1.0),
+                        end: Vec3::ZERO,
+                    },
+                );
+                tween.set_completed_event(0);
+                commands.entity(*entity).insert(Animator::new(tween));
+                score.coins += 1;
+                deleted_coins.push(*entity);
+            }
+        }
+        for coin in deleted_coins {
+            level.coin_positions.remove(&coin);
+        }
+    }
+}
+
+fn coin_tween_done_event_handler(mut commands: Commands, mut done: EventReader<TweenCompleted>) {
+    for ev in done.iter() {
+        commands.entity(ev.entity).despawn_recursive();
     }
 }
 
