@@ -21,6 +21,9 @@ pub struct Level {
 impl Level {
     pub fn new(level: usize) -> Self {
         let data = LEVELS[level];
+        Level::new_data(data)
+    }
+    fn new_data(data: &str) -> Self {
         let mut rows: Vec<Vec<_>> = Vec::new();
 
         let lines: Vec<&str> = data.split('\n').filter(|e| !e.is_empty()).collect();
@@ -261,7 +264,7 @@ mod tests {
 *         x
 -----******
 "#;
-        let level = Level::new(level_data);
+        let level = Level::new_data(level_data);
         let pos = level.wall_positions(Position::new(0, 0));
         assert_eq!(pos.len(), 15);
     }

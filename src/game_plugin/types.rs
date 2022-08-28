@@ -195,10 +195,20 @@ pub struct Exit;
 #[derive(Component)]
 pub struct ExitLight;
 
-#[derive(Component, Default)]
 pub struct Score {
     pub coins: usize,
     pub moves: usize,
+    pub bombs: usize,
+}
+
+impl Default for Score {
+    fn default() -> Self {
+        Self {
+            coins: 0,
+            moves: 0,
+            bombs: 3,
+        }
+    }
 }
 
 #[derive(Component)]

@@ -9,7 +9,9 @@ use bevy::{prelude::*, window::close_on_esc};
 use game_plugin::MaterialHandles;
 
 mod game_plugin;
+mod lost_plugin;
 mod menu_plugin;
+mod won_plugin;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum GameState {
@@ -33,6 +35,8 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(game_plugin::GamePlugin)
         .add_plugin(menu_plugin::MenuPlugin)
+        .add_plugin(won_plugin::WonPlugin)
+        .add_plugin(lost_plugin::LostPlugin)
         .add_startup_system(init)
         .add_system(close_on_esc)
         .run();

@@ -2,6 +2,7 @@ mod level;
 mod logic;
 mod statics;
 mod types;
+mod ui;
 
 use bevy::prelude::*;
 use bevy_mod_outline::*;
@@ -23,6 +24,7 @@ impl Plugin for GamePlugin {
             .add_event::<ShowLevelExitEvent>()
             .add_event::<GoNextLevelEvent>()
             .add_system_set(SystemSet::on_enter(GameState::Game).with_system(logic::first_level))
+            .add_system_set(SystemSet::on_enter(GameState::Game).with_system(ui::setup_ui))
             // .add_system_set(SystemSet::on_exit(GameState::Game).with_system(logic::exit))
             .add_system_set(
                 SystemSet::on_update(GameState::Game)
@@ -37,7 +39,10 @@ impl Plugin for GamePlugin {
                     .with_system(logic::enemy_logic)
                     .with_system(logic::move_entities)
                     .with_system(logic::show_level_exit)
-                    .with_system(logic::finish_level),
+                    .with_system(logic::finish_level)
+                    .with_system(ui::update_ui_bombs)
+                    .with_system(ui::update_ui_level)
+                    .with_system(ui::update_ui_score),
             );
     }
 }

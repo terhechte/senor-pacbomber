@@ -550,7 +550,11 @@ pub fn update_level(
         // check if player and enemies collide
         for position in level.enemy_positions.values() {
             if position == &player_location.0 {
-                // FIXME: State trigger
+                implode_entity(&mut commands, player_entity, player_transform);
+                commands
+                    .entity(player_entity)
+                    .remove::<Movement>()
+                    .remove::<Speed>();
             }
         }
         // check if the player is over the exit
@@ -644,8 +648,13 @@ pub fn bomb_explosion_destruction(
         }
         for (entity, transform) in enemy_query.iter() {
             if level.enemy_positions[&entity] == location.0 {
-                kill_enemy(&mut commands, entity, &transform);
+                implode_entity(&mut commands, entity, transform);
                 removable_enemies.push(entity);
+                commands
+                    .entity(entity)
+                    .remove::<Enemy>()
+                    .remove::<Movement>()
+                    .remove::<Speed>();
             }
         }
     }
@@ -708,7 +717,7 @@ fn player_enter_exit(commands: &mut Commands, entity: Entity, transform: &Transf
         .insert(Animator::new(tween));
 }
 
-fn kill_enemy(commands: &mut Commands, entity: Entity, transform: &Transform) {
+fn implode_entity(commands: &mut Commands, entity: Entity, transform: &Transform) {
     let duration = 0.3;
     // We scale the enemy
     let tween1 = Tween::new(
@@ -759,12 +768,7 @@ fn kill_enemy(commands: &mut Commands, entity: Entity, transform: &Transform) {
     );
     step2.set_completed_event(0);
     let series = Sequence::from_single(step1).then(step2);
-    commands
-        .entity(entity)
-        .remove::<Enemy>()
-        .remove::<Movement>()
-        .remove::<Speed>()
-        .insert(Animator::new(series));
+    commands.entity(entity).insert(Animator::new(series));
 }
 
 fn insert_bomb_explosion_tween(commands: &mut Commands, entity: Entity, delay_sec: f32) {
