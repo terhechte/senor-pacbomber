@@ -15,6 +15,7 @@ use bevy::{
 use bevy_mod_outline::*;
 use std::{
     cmp::Ordering,
+    collections::HashSet,
     f32::consts::{PI, TAU},
     ops::Mul,
     time::Duration,
@@ -32,7 +33,7 @@ const LEVEL_DATA: &str = r#"
 #----------   ----------#
 "#;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 enum BlockType {
     WallBig,
     WallSmallV,
@@ -57,6 +58,13 @@ impl BlockType {
             BlockType::Space => sizes::space,
         }
     }
+
+    fn is_wall(&self) -> bool {
+        matches!(
+            self,
+            BlockType::WallBig | BlockType::WallSmallH | BlockType::WallSmallV
+        )
+    }
 }
 
 impl From<char> for BlockType {
@@ -75,7 +83,17 @@ impl From<char> for BlockType {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+pub struct MaterialHandles {
+    pub wall_normal: Handle<StandardMaterial>,
+    pub wall_hidden: Handle<StandardMaterial>,
+    pub coin: Handle<StandardMaterial>,
+    pub player: Handle<StandardMaterial>,
+    pub enemy: Handle<StandardMaterial>,
+    pub floor_bg: Handle<StandardMaterial>,
+    pub floor_fg: Handle<StandardMaterial>,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, Hash)]
 struct Position {
     x: usize,
     z: usize,
@@ -121,7 +139,7 @@ impl Mul<Vec2> for Direction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 struct Block {
     kind: BlockType,
     position: Vec3,
@@ -178,6 +196,17 @@ impl Level {
         self.rows.iter()
     }
 
+    fn get(&self, ax: i8, az: i8) -> Option<Block> {
+        if ax < 0 || az < 0 {
+            return None;
+        }
+        if ax as usize >= self.size.x || az as usize >= self.size.z {
+            return None;
+        }
+        let item = self.rows[az as usize][ax as usize];
+        Some(item)
+    }
+
     fn translate_to_position(&self, position: Vec3) -> Position {
         let offsets = Vec3::new(self.offsets.0, 0.0, self.offsets.1);
         let size = offsets * 2.;
@@ -199,33 +228,67 @@ impl Level {
         Vec3::new(position.0, 0.0, position.1)
     }
 
-    /// Find all block collisions in block space.
+    /// Find all free spaces (e.g. not walls) around a position
     fn free_directions(&self, position: Position) -> Vec<Direction> {
-        let blocking_kinds = [
-            BlockType::WallBig,
-            BlockType::WallSmallH,
-            BlockType::WallSmallV,
-        ];
         // traverse all directions around the position and check if they're free
         let (x, z) = (position.x as i8, position.z as i8);
         let mut results = Vec::new();
         'outer: for (mx, mz) in [(1_i8, 0), (-1_i8, 0), (0, 1), (0, -1_i8)] {
-            let (ax, az) = (x + mx, z + mz);
-            if ax < 0 || az < 0 {
-                continue;
-            }
-            if ax as usize >= self.size.x || az as usize >= self.size.z {
-                continue;
-            }
-            let item = &self.rows[az as usize][ax as usize];
-            for blocking in &blocking_kinds {
-                if blocking == &item.kind {
-                    continue 'outer;
-                }
+            let item = match self.get(x + mx, z + mz) {
+                Some(n) => n,
+                None => continue,
+            };
+            if item.kind.is_wall() {
+                continue 'outer;
             }
             // otherwise this is free
             results.push(Direction::new(mx, mz))
         }
+        results
+    }
+
+    /// All connected wall positions that are z below +1 from the current position
+    fn wall_positions(&self, position: Position) -> Vec<Position> {
+        let mut new_position = position;
+        new_position.apply_direction(&Direction::new(0, 1));
+        let block = match self.get(new_position.x as i8, new_position.z as i8) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+        if !block.kind.is_wall() {
+            return Vec::new();
+        }
+        // depth search to find all other connected wall elements
+        let mut results = vec![new_position];
+        let mut tested = HashSet::new();
+        tested.insert(new_position);
+        fn recursive_search(
+            level: &Level,
+            position: Position,
+            into: &mut Vec<Position>,
+            tested: &mut HashSet<Position>,
+        ) {
+            for (mx, mz) in [(1_i8, 0), (-1_i8, 0), (0, 1), (0, -1_i8)] {
+                let mut new = position;
+                new.apply_direction(&Direction::new(mx, mz));
+                if tested.contains(&new) {
+                    continue;
+                }
+                tested.insert(new);
+                let block = match level.get(new.x as i8, new.z as i8) {
+                    Some(n) => n,
+                    None => {
+                        continue;
+                    }
+                };
+                // we ignore the | walls as connectors
+                if block.kind.is_wall() && !matches!(block.kind, BlockType::WallSmallV) {
+                    into.push(new);
+                    recursive_search(level, new, into, tested);
+                }
+            }
+        }
+        recursive_search(self, new_position, &mut results, &mut tested);
         results
     }
 }
@@ -293,6 +356,7 @@ fn main() {
         .add_system(close_on_esc)
         .add_system(wobble)
         .add_system(keyboard_input_system)
+        .add_system(wall_visibility)
         .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
@@ -309,38 +373,51 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     level: Res<Level>,
 ) {
-    let wall_material = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
-    let coin_material = materials.add(StandardMaterial {
-        base_color: Color::YELLOW,
-        emissive: Color::rgb(0.1, 0.1, 0.1),
-        ..Default::default()
-    });
+    let material_handles = {
+        let wall_normal = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
+        let wall_hidden = materials.add(Color::rgba(0.8, 0.7, 0.6, 0.3).into());
+        let coin = materials.add(StandardMaterial {
+            base_color: Color::YELLOW,
+            emissive: Color::rgb(0.1, 0.1, 0.1),
+            ..Default::default()
+        });
 
-    let player_material = materials.add(StandardMaterial {
-        base_color: Color::BLUE,
-        metallic: 0.5,
-        reflectance: 0.15,
-        ..Default::default()
-    });
+        let player = materials.add(StandardMaterial {
+            base_color: Color::BLUE,
+            metallic: 0.5,
+            reflectance: 0.15,
+            ..Default::default()
+        });
 
-    let enemy_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        ..Default::default()
-    });
+        let enemy = materials.add(StandardMaterial {
+            base_color: Color::WHITE,
+            ..Default::default()
+        });
 
-    let floor_bg_material = materials.add(StandardMaterial {
-        base_color: Color::DARK_GRAY,
-        metallic: 0.0,
-        reflectance: 0.15,
-        ..Default::default()
-    });
+        let floor_bg = materials.add(StandardMaterial {
+            base_color: Color::DARK_GRAY,
+            metallic: 0.0,
+            reflectance: 0.15,
+            ..Default::default()
+        });
 
-    let floor_fg_material = materials.add(StandardMaterial {
-        base_color: Color::LIME_GREEN,
-        metallic: 0.5,
-        reflectance: 0.75,
-        ..Default::default()
-    });
+        let floor_fg = materials.add(StandardMaterial {
+            base_color: Color::LIME_GREEN,
+            metallic: 0.5,
+            reflectance: 0.75,
+            ..Default::default()
+        });
+
+        MaterialHandles {
+            wall_normal,
+            wall_hidden,
+            coin,
+            player,
+            enemy,
+            floor_bg,
+            floor_fg,
+        }
+    };
 
     for row in level.rows() {
         for block in row.iter() {
@@ -348,28 +425,25 @@ fn setup(
             setup_space(
                 &mut commands,
                 &mut meshes,
-                floor_fg_material.clone(),
-                floor_bg_material.clone(),
+                &material_handles,
                 (block.position.x, block.position.z),
             );
             match block.kind {
                 BlockType::WallBig => {
-                    setup_wall(&mut commands, &mut meshes, wall_material.clone(), block)
+                    setup_wall(&mut commands, &mut meshes, &material_handles, block)
                 }
                 BlockType::WallSmallV => {
-                    setup_wall(&mut commands, &mut meshes, wall_material.clone(), block)
+                    setup_wall(&mut commands, &mut meshes, &material_handles, block)
                 }
                 BlockType::WallSmallH => {
-                    setup_wall(&mut commands, &mut meshes, wall_material.clone(), block)
+                    setup_wall(&mut commands, &mut meshes, &material_handles, block)
                 }
-                BlockType::Coin => {
-                    setup_coin(&mut commands, &mut meshes, coin_material.clone(), block)
-                }
+                BlockType::Coin => setup_coin(&mut commands, &mut meshes, &material_handles, block),
                 BlockType::Player => {
-                    setup_player(&mut commands, &mut meshes, player_material.clone(), block)
+                    setup_player(&mut commands, &mut meshes, &material_handles, block)
                 }
                 BlockType::Enemy => {
-                    setup_enemy(&mut commands, &mut meshes, enemy_material.clone(), block)
+                    setup_enemy(&mut commands, &mut meshes, &material_handles, block)
                 }
                 BlockType::Space => {}
             }
@@ -391,12 +465,13 @@ fn setup(
         transform: Transform::from_xyz(0.0, 5.5, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
+    commands.insert_resource(material_handles);
 }
 
 fn setup_wall(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    material: Handle<StandardMaterial>,
+    materials: &MaterialHandles,
     block: &Block,
 ) {
     let s = block.kind.size();
@@ -405,18 +480,19 @@ fn setup_wall(
     commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(wall_mesh),
-            material,
+            material: materials.wall_normal.clone(),
             transform: Transform::from_xyz(p.x, p.y, p.z),
             ..default()
         })
         .insert(Size(s))
+        .insert(Location(block.level_position))
         .insert(Wall);
 }
 
 fn setup_coin(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    material: Handle<StandardMaterial>,
+    materials: &MaterialHandles,
     block: &Block,
 ) {
     let s = block.kind.size();
@@ -430,7 +506,7 @@ fn setup_coin(
     commands
         .spawn_bundle(MaterialMeshBundle {
             mesh: meshes.add(coin_mesh),
-            material,
+            material: materials.coin.clone(),
             transform: Transform::from_xyz(p.x, p.y, p.z),
             ..default()
         })
@@ -441,7 +517,7 @@ fn setup_coin(
 fn setup_player(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    material: Handle<StandardMaterial>,
+    materials: &MaterialHandles,
     block: &Block,
 ) {
     let s = block.kind.size();
@@ -454,7 +530,7 @@ fn setup_player(
     commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(player_mesh),
-            material,
+            material: materials.player.clone(),
             transform: Transform::from_xyz(p.x, p.y, p.z),
             ..default()
         })
@@ -476,7 +552,7 @@ fn setup_player(
 fn setup_enemy(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    material: Handle<StandardMaterial>,
+    materials: &MaterialHandles,
     block: &Block,
 ) {
     let s = block.kind.size();
@@ -485,7 +561,7 @@ fn setup_enemy(
     commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(enemy_mesh),
-            material,
+            material: materials.enemy.clone(),
             transform: Transform::from_xyz(p.x, p.y, p.z),
             ..default()
         })
@@ -499,8 +575,7 @@ fn setup_enemy(
 fn setup_space(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    floor_fg: Handle<StandardMaterial>,
-    floor_bg: Handle<StandardMaterial>,
+    materials: &MaterialHandles,
     position: (f32, f32),
 ) {
     commands
@@ -508,7 +583,7 @@ fn setup_space(
             mesh: meshes.add(Mesh::from(shape::Plane {
                 size: sizes::field.x,
             })),
-            material: floor_fg,
+            material: materials.floor_fg.clone(),
             transform: Transform::from_xyz(position.0, sizes::space.y - 0.01, position.1),
             ..default()
         })
@@ -519,7 +594,7 @@ fn setup_space(
             mesh: meshes.add(Mesh::from(shape::Plane {
                 size: sizes::space.x,
             })),
-            material: floor_bg,
+            material: materials.floor_bg.clone(),
             transform: Transform::from_xyz(position.0, sizes::space.y, position.1),
             ..default()
         })
@@ -648,5 +723,52 @@ fn move_entities(
             velocity.value = 0.0;
             transform.translation = level.translate_from_position(location.0);
         }
+    }
+}
+
+fn wall_visibility(
+    mut commands: Commands,
+    query: Query<(Entity, &Location), With<Wall>>,
+    level: Res<Level>,
+    player_query: Query<&Location, (With<Player>, Changed<Location>)>,
+    materials: Res<MaterialHandles>,
+) {
+    let player_location = match player_query.iter().next() {
+        Some(n) => n,
+        None => return,
+    };
+    let walls_below = level.wall_positions(player_location.0);
+    for (entity, location) in query.iter() {
+        if walls_below.contains(&location.0) {
+            commands
+                .entity(entity)
+                .remove::<Handle<StandardMaterial>>()
+                .insert(materials.wall_hidden.clone());
+        } else {
+            commands
+                .entity(entity)
+                .remove::<Handle<StandardMaterial>>()
+                .insert(materials.wall_normal.clone());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wall_positions() {
+        let level_data = r#"
+          x
+###########
+##        #
+#         x
+*         x
+-----******
+"#;
+        let level = Level::new(level_data);
+        let pos = level.wall_positions(Position::new(0, 0));
+        assert_eq!(pos.len(), 15);
     }
 }
