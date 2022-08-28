@@ -234,3 +234,5 @@ pub struct LevelItem;
 pub struct ShowLevelExitEvent;
 
 pub struct GoNextLevelEvent;
+
+pub struct PlayerDiedEvent;

@@ -8,7 +8,7 @@ use std::{cmp::Ordering, f32::consts::TAU, time::Duration};
 
 use crate::GameState;
 
-use super::statics::{sizes, FPS};
+use super::statics::{sizes, FPS, USER_DIED_PAYLOAD};
 use super::types::*;
 use super::{level::Level, statics::LEVEL_COMPLETED_PAYLOAD};
 
@@ -116,6 +116,7 @@ pub fn level_loading(
     for id in children {
         commands.entity(id).insert(LevelItem);
     }
+    level.done_loading = true;
 }
 
 pub fn finish_level(
@@ -143,6 +144,12 @@ pub fn finish_level(
 
     commands.insert_resource(super::level::Level::new(next.0));
     commands.insert_resource(next);
+}
+
+pub fn cleanup_level(mut commands: Commands, query: Query<Entity, With<LevelItem>>) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
 }
 
 pub fn setup_wall(
@@ -224,7 +231,7 @@ pub fn setup_player(
         .insert(Size(s))
         .insert(Movement::default())
         .insert(Location(block.level_position))
-        .insert(Speed(0.3))
+        .insert(Speed(0.1))
         .insert(Player)
         .id();
     // add a tween so the player falls into the game
@@ -260,7 +267,7 @@ pub fn setup_enemy(
         .insert(Size(s))
         .insert(Movement::default())
         .insert(Location(block.level_position))
-        .insert(Speed(0.7))
+        .insert(Speed(0.2))
         .insert(Enemy)
         .id()
 }
@@ -440,7 +447,7 @@ pub fn keyboard_input_system(
             (KeyCode::Up, BoardDirection::new(0, -1)),
             (KeyCode::Down, BoardDirection::new(0, 1)),
         ] {
-            if keyboard_input.pressed(code) {
+            if keyboard_input.just_pressed(code) {
                 let directions = level.free_directions(location.0);
                 if directions.contains(&direction) {
                     velocity.direction = direction;
@@ -541,20 +548,20 @@ pub fn update_level(
     player_query: Query<(Entity, &Location, &Transform), (With<Player>, Changed<Location>)>,
     enemy_query: Query<(Entity, &Location), (With<Enemy>, Changed<Location>)>,
     mut score: ResMut<Score>,
+    mut player_sender: EventWriter<PlayerDiedEvent>,
 ) {
     for (entity, location) in enemy_query.iter() {
         level.enemy_positions.insert(entity, location.0);
+        if level.player_position == location.0 {
+            player_sender.send(PlayerDiedEvent);
+        }
     }
     if let Some((player_entity, player_location, player_transform)) = player_query.iter().next() {
         level.player_position = player_location.0;
         // check if player and enemies collide
         for position in level.enemy_positions.values() {
             if position == &player_location.0 {
-                implode_entity(&mut commands, player_entity, player_transform);
-                commands
-                    .entity(player_entity)
-                    .remove::<Movement>()
-                    .remove::<Speed>();
+                player_sender.send(PlayerDiedEvent);
             }
         }
         // check if the player is over the exit
@@ -586,16 +593,35 @@ pub fn update_level(
     }
 }
 
+pub fn player_did_die_system(
+    mut commands: Commands,
+    player: Query<(Entity, &Transform), With<Player>>,
+    player_reader: EventReader<PlayerDiedEvent>,
+) {
+    if !player_reader.is_empty() {
+        let (entity, transform) = player.single();
+        implode_entity(&mut commands, entity, transform, USER_DIED_PAYLOAD);
+        commands
+            .entity(entity)
+            .remove::<Movement>()
+            .remove::<Speed>();
+        // send a brief delay before going to loose
+    }
+}
+
 /// This removes all tweens that are done and had a complete handler set up
 pub fn tween_done_remove_handler(
     mut commands: Commands,
     mut done: EventReader<TweenCompleted>,
     mut writer: EventWriter<GoNextLevelEvent>,
     level: Res<Level>,
+    mut app_state: ResMut<State<GameState>>,
 ) {
     for ev in done.iter() {
         if ev.user_data == LEVEL_COMPLETED_PAYLOAD {
             writer.send(GoNextLevelEvent);
+        } else if ev.user_data == USER_DIED_PAYLOAD {
+            app_state.set(GameState::Lost).unwrap();
         } else {
             commands.entity(ev.entity).despawn_recursive();
         }
@@ -648,7 +674,7 @@ pub fn bomb_explosion_destruction(
         }
         for (entity, transform) in enemy_query.iter() {
             if level.enemy_positions[&entity] == location.0 {
-                implode_entity(&mut commands, entity, transform);
+                implode_entity(&mut commands, entity, transform, 0);
                 removable_enemies.push(entity);
                 commands
                     .entity(entity)
@@ -662,7 +688,7 @@ pub fn bomb_explosion_destruction(
         level.enemy_positions.remove(&entity);
     }
     // if there're no enemies left, start the end level condition
-    if level.enemy_positions.is_empty() && !level.ending_visible {
+    if level.enemy_positions.is_empty() && !level.ending_visible && level.done_loading {
         level_exit_writer.send(ShowLevelExitEvent);
         level.ending_visible = true;
     }
@@ -717,7 +743,7 @@ fn player_enter_exit(commands: &mut Commands, entity: Entity, transform: &Transf
         .insert(Animator::new(tween));
 }
 
-fn implode_entity(commands: &mut Commands, entity: Entity, transform: &Transform) {
+fn implode_entity(commands: &mut Commands, entity: Entity, transform: &Transform, payload: u64) {
     let duration = 0.3;
     // We scale the enemy
     let tween1 = Tween::new(
@@ -766,7 +792,7 @@ fn implode_entity(commands: &mut Commands, entity: Entity, transform: &Transform
             end: Vec3::ZERO,
         },
     );
-    step2.set_completed_event(0);
+    step2.set_completed_event(payload);
     let series = Sequence::from_single(step1).then(step2);
     commands.entity(entity).insert(Animator::new(series));
 }

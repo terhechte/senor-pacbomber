@@ -14,6 +14,7 @@ pub const FPS: f32 = 60.0;
 pub const TIME_STEP: f32 = 1.0 / FPS;
 
 pub const LEVEL_COMPLETED_PAYLOAD: u64 = 42;
+pub const USER_DIED_PAYLOAD: u64 = 43;
 
 pub const LEVELS: &[&str] = &[L1, L2, L3];
 

@@ -16,6 +16,7 @@ pub struct Level {
     pub bombs: HashMap<Entity, (usize, Position)>,
     pub bomb_size: usize,
     pub ending_visible: bool,
+    pub done_loading: bool,
 }
 
 impl Level {
@@ -80,8 +81,9 @@ impl Level {
             enemy_positions: HashMap::new(),
             coin_positions: HashMap::new(),
             bombs: HashMap::new(),
-            bomb_size: 5,
+            bomb_size: 3,
             ending_visible: false,
+            done_loading: false,
         }
     }
 

@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use super::types::{CurrentLevel, Score};
 
 #[derive(Component)]
-struct UiComponent;
+pub struct UiComponent;
 
 #[derive(Component)]
 pub struct BombLabel;
@@ -61,6 +61,12 @@ pub fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 .insert(PointLabel);
         })
         .insert(UiComponent);
+}
+
+pub fn cleanup_ui(mut commands: Commands, query: Query<Entity, With<UiComponent>>) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
 }
 
 pub fn update_ui_bombs(score: Res<Score>, mut query: Query<&mut Text, With<BombLabel>>) {
