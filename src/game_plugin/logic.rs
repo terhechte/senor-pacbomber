@@ -572,17 +572,7 @@ pub fn update_level(
         let mut deleted_coins = Vec::new();
         for (entity, position) in level.coin_positions.iter() {
             if position == &player_location.0 {
-                let mut tween = Tween::new(
-                    EaseFunction::QuadraticInOut,
-                    TweeningType::Once,
-                    Duration::from_secs_f32(0.5),
-                    TransformScaleLens {
-                        start: Vec3::new(1.0, 1.0, 1.0),
-                        end: Vec3::ZERO,
-                    },
-                );
-                tween.set_completed_event(0);
-                commands.entity(*entity).insert(Animator::new(tween));
+                destroy_coin(&mut commands, entity);
                 score.coins += 1;
                 deleted_coins.push(*entity);
             }
@@ -591,6 +581,20 @@ pub fn update_level(
             level.coin_positions.remove(&coin);
         }
     }
+}
+
+fn destroy_coin(commands: &mut Commands, entity: &Entity) {
+    let mut tween = Tween::new(
+        EaseFunction::QuadraticInOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(0.5),
+        TransformScaleLens {
+            start: Vec3::new(1.0, 1.0, 1.0),
+            end: Vec3::ZERO,
+        },
+    );
+    tween.set_completed_event(0);
+    commands.entity(*entity).insert(Animator::new(tween));
 }
 
 pub fn player_did_die_system(
@@ -666,11 +670,12 @@ pub fn bomb_explosion_destruction(
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut level: ResMut<Level>,
     mut level_exit_writer: EventWriter<ShowLevelExitEvent>,
+    mut player_sender: EventWriter<PlayerDiedEvent>,
 ) {
     let mut removable_enemies = Vec::new();
     for (entity, location) in explosion_query.iter() {
         if level.player_position == location.0 {
-            //println!("GAME OVER cause bombs");
+            player_sender.send(PlayerDiedEvent);
         }
         for (entity, transform) in enemy_query.iter() {
             if level.enemy_positions[&entity] == location.0 {
@@ -698,7 +703,9 @@ pub fn show_level_exit(
     mut commands: Commands,
     mut event: EventReader<ShowLevelExitEvent>,
     exits: Query<(Entity, &Transform), With<Exit>>,
+    coins: Query<Entity, With<Coin>>,
     mut lamps: Query<&mut Visibility, With<ExitLight>>,
+    mut level: ResMut<Level>,
 ) {
     for ev in event.iter() {
         for (entity, transform) in exits.iter() {
@@ -719,6 +726,11 @@ pub fn show_level_exit(
             let mut vis_map = lamps.single_mut();
             vis_map.is_visible = true;
         }
+        // Destory all remaining coins
+        for entity in coins.iter() {
+            destroy_coin(&mut commands, &entity);
+        }
+        level.coin_positions.clear();
     }
 }
 

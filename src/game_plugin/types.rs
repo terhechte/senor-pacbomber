@@ -217,7 +217,7 @@ pub struct Bomb(pub f32);
 impl Bomb {
     pub fn new() -> Self {
         // Default bomb time is 2.5 seconds until explode
-        Bomb(2.5)
+        Bomb(1.5)
     }
 }
 
