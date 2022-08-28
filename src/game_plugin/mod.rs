@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy_mod_outline::*;
 use bevy_tweening::TweeningPlugin;
 
-use self::types::{GoNextLevelEvent, LevelEntity, ShowLevelExitEvent};
+use self::types::{GoNextLevelEvent, ShowLevelExitEvent};
 
 use super::GameState;
 
@@ -18,7 +18,6 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(types::Score::default())
-            .insert_resource(level::Level::new(statics::LEVEL_DATA))
             .add_plugin(OutlinePlugin)
             .add_plugin(TweeningPlugin)
             .add_event::<ShowLevelExitEvent>()
@@ -40,24 +39,5 @@ impl Plugin for GamePlugin {
                     .with_system(logic::show_level_exit)
                     .with_system(logic::finish_level),
             );
-    }
-}
-
-pub fn exit(
-    q_parent: Query<(&LevelEntity, &Children)>,
-    q_child: Query<Entity>,
-    mut commands: Commands,
-    mut reader: EventReader<GoNextLevelEvent>,
-) {
-    let event = match reader.iter().next() {
-        Some(n) => n,
-        None => return,
-    };
-    println!("PROCESS EXIT");
-    for (_, children) in q_parent.iter() {
-        for &child in children.iter() {
-            dbg!(child);
-        }
-        // commands.entity(entity).despawn();
     }
 }

@@ -6,12 +6,14 @@ use bevy_tweening::{
 };
 use std::{cmp::Ordering, f32::consts::TAU, time::Duration};
 
+use crate::GameState;
+
 use super::statics::{sizes, FPS};
 use super::types::*;
 use super::{level::Level, statics::LEVEL_COMPLETED_PAYLOAD};
 
 pub fn first_level(mut commands: Commands) {
-    commands.insert_resource(super::level::Level::new(super::statics::LEVEL_DATA));
+    commands.insert_resource(super::level::Level::new(0));
     commands.insert_resource(CurrentLevel(0));
     commands.insert_resource(super::types::Score::default());
 }
@@ -24,10 +26,8 @@ pub fn level_loading(
     current_level: Res<CurrentLevel>,
     material_handles: Res<MaterialHandles>,
 ) {
-    println!("DETERMINE LEVEL CHANGE");
     // only setup a new level if the level changed
     if !current_level.is_changed() {
-        println!("NO CHANGE TO LEVEL");
         return;
     }
 
@@ -122,6 +122,8 @@ pub fn finish_level(
     mut commands: Commands,
     mut reader: EventReader<GoNextLevelEvent>,
     query: Query<Entity, With<LevelItem>>,
+    mut current: ResMut<CurrentLevel>,
+    mut app_state: ResMut<State<GameState>>,
 ) {
     let event = match reader.iter().next() {
         Some(n) => n,
@@ -130,9 +132,17 @@ pub fn finish_level(
     for entity in query.iter() {
         commands.entity(entity).despawn_recursive();
     }
-    // and jump (somehow) to the next level
-    commands.insert_resource(super::level::Level::new(super::statics::LEVEL_DATA2));
-    commands.insert_resource(CurrentLevel(1));
+    let next = match current.next() {
+        Some(n) => n,
+        None => {
+            // Transition to the ending
+            app_state.set(GameState::Won).unwrap();
+            return;
+        }
+    };
+
+    commands.insert_resource(super::level::Level::new(next.0));
+    commands.insert_resource(next);
 }
 
 pub fn setup_wall(
@@ -581,7 +591,7 @@ pub fn tween_done_remove_handler(
 ) {
     for ev in done.iter() {
         if ev.user_data == LEVEL_COMPLETED_PAYLOAD {
-            writer.send(GoNextLevelEvent(level.current()))
+            writer.send(GoNextLevelEvent);
         } else {
             commands.entity(ev.entity).despawn_recursive();
         }

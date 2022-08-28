@@ -1,6 +1,6 @@
 use std::ops::Mul;
 
-use super::statics::sizes;
+use super::statics::{sizes, LEVELS};
 use bevy::prelude::*;
 
 // ################################################################################
@@ -141,10 +141,16 @@ pub struct Block {
     pub level_position: Position,
 }
 
-#[derive(Debug, Component)]
-pub struct LevelEntity;
-
 pub struct CurrentLevel(pub usize);
+
+impl CurrentLevel {
+    pub fn next(&self) -> Option<CurrentLevel> {
+        if self.0 >= LEVELS.len() {
+            return None;
+        }
+        Some(CurrentLevel(self.0 + 1))
+    }
+}
 
 // ################################################################################
 // Components
@@ -217,4 +223,4 @@ pub struct LevelItem;
 
 pub struct ShowLevelExitEvent;
 
-pub struct GoNextLevelEvent(pub usize);
+pub struct GoNextLevelEvent;

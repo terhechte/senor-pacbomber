@@ -9,13 +9,14 @@ use bevy::{prelude::*, window::close_on_esc};
 use game_plugin::MaterialHandles;
 
 mod game_plugin;
+mod menu_plugin;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum GameState {
-    Loading,
     Menu,
     Game,
-    Ending,
+    Lost,
+    Won,
 }
 
 fn main() {
@@ -25,12 +26,13 @@ fn main() {
             title: "I am a window!".to_string(),
             width: 844.,
             height: 600.,
-            // resizable: false,
+            resizable: false,
             ..default()
         })
-        .add_state(GameState::Game)
+        .add_state(GameState::Menu)
         .add_plugins(DefaultPlugins)
         .add_plugin(game_plugin::GamePlugin)
+        .add_plugin(menu_plugin::MenuPlugin)
         .add_startup_system(init)
         .add_system(close_on_esc)
         .run();

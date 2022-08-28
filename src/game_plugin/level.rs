@@ -1,7 +1,7 @@
 use bevy::{prelude::*, utils::HashMap};
 use std::collections::HashSet;
 
-use super::statics::sizes;
+use super::statics::{sizes, LEVELS};
 use super::types::*;
 
 #[derive(Debug)]
@@ -19,11 +19,8 @@ pub struct Level {
 }
 
 impl Level {
-    pub fn current(&self) -> usize {
-        0
-    }
-
-    pub fn new(data: &str) -> Self {
+    pub fn new(level: usize) -> Self {
+        let data = LEVELS[level];
         let mut rows: Vec<Vec<_>> = Vec::new();
 
         let lines: Vec<&str> = data.split('\n').filter(|e| !e.is_empty()).collect();

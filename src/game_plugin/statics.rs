@@ -15,7 +15,9 @@ pub const TIME_STEP: f32 = 1.0 / FPS;
 
 pub const LEVEL_COMPLETED_PAYLOAD: u64 = 42;
 
-pub const LEVEL_DATA: &str = r#"
+pub const LEVELS: &[&str] = &[L1, L2, L3];
+
+const L1: &str = r#"
 #----------   ----------#
 | * * * * * ** * * * *  |
 | ##---- #-----# ----## |
@@ -27,7 +29,19 @@ pub const LEVEL_DATA: &str = r#"
 #----------   ----------#
 "#;
 
-pub const LEVEL_DATA2: &str = r#"
+pub const L2: &str = r#"
+#----------   ----------#
+| * * * * * ** * * * *  |
+| ##---- #-----# ----## |
+| #* *   #x x x#   * *# |
+  #----  # ### #  ----#  
+| * * * * *   * * * * * |
+| --#--- ## o ## ---#-- |
+|  *|* e           *|*  |
+#----------   ----------#
+"#;
+
+pub const L3: &str = r#"
 #----------   ----------#
 | * * * * * ** * * * *  |
 | ##---- #-----# ----## |
