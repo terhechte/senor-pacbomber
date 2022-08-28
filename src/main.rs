@@ -5,36 +5,7 @@
 //! - [ ] add bomb update item to increase bomb range
 //! - [ ] special item that rotates the level z 90. so that the controls are temporary inverse
 
-use bevy::{
-    pbr::{MaterialPipeline, MaterialPipelineKey},
-    prelude::*,
-    reflect::TypeUuid,
-    render::{
-        mesh::MeshVertexBufferLayout,
-        render_resource::{
-            AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
-        },
-    },
-    sprite::collide_aabb::collide,
-    time::FixedTimestep,
-    utils::HashMap,
-    window::close_on_esc,
-};
-use bevy_mod_outline::*;
-use bevy_tweening::{
-    lens::{
-        TransformPositionLens, TransformRotateXLens, TransformRotationLens, TransformScaleLens,
-    },
-    Animator, Delay, EaseFunction, Sequence, Tracks, Tween, TweenCompleted, TweeningPlugin,
-    TweeningType,
-};
-use std::{
-    cmp::Ordering,
-    collections::HashSet,
-    f32::consts::{PI, TAU},
-    ops::Mul,
-    time::Duration,
-};
+use bevy::{prelude::*, window::close_on_esc};
 
 mod game_plugin;
 
@@ -48,6 +19,7 @@ pub enum GameState {
 
 fn main() {
     App::new()
+        .insert_resource(ClearColor(Color::rgb(0.2, 0.2, 0.2)))
         .insert_resource(WindowDescriptor {
             title: "I am a window!".to_string(),
             width: 844.,

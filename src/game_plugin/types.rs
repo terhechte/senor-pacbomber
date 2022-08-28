@@ -16,6 +16,7 @@ pub enum BlockType {
     Enemy,
     Player,
     Space,
+    Exit,
 }
 
 impl BlockType {
@@ -30,6 +31,7 @@ impl BlockType {
             BlockType::Enemy => sizes::enemy,
             BlockType::Player => sizes::enemy,
             BlockType::Space => sizes::space,
+            BlockType::Exit => sizes::space,
         }
     }
 
@@ -52,6 +54,7 @@ impl From<char> for BlockType {
             'o' => Player,
             'x' => Enemy,
             ' ' => Space,
+            'e' => Exit,
             _ => panic!("Unknown Level char {c}"),
         }
     }
@@ -65,6 +68,9 @@ pub struct MaterialHandles {
     pub enemy: Handle<StandardMaterial>,
     pub floor_bg: Handle<StandardMaterial>,
     pub floor_fg: Handle<StandardMaterial>,
+    pub ground: Handle<StandardMaterial>,
+    pub bomb: Handle<StandardMaterial>,
+    pub explosion: Handle<StandardMaterial>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default, Hash)]
@@ -172,6 +178,12 @@ pub struct Size(pub Vec3);
 #[derive(Component, Default)]
 pub struct Speed(pub f32);
 
+#[derive(Component)]
+pub struct Exit;
+
+#[derive(Component)]
+pub struct ExitLight;
+
 #[derive(Component, Default)]
 pub struct Score {
     pub coins: usize,
@@ -190,3 +202,9 @@ impl Bomb {
 
 #[derive(Component)]
 pub struct BombExplosion;
+
+// ################################################################################
+// Events
+// ################################################################################
+
+pub struct ShowLevelExitEvent;

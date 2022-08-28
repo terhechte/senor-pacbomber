@@ -17,7 +17,6 @@ pub fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut level: ResMut<Level>,
 ) {
-    println!("SETUP");
     let material_handles = {
         let wall_normal = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
         let wall_hidden = materials.add(Color::rgba(0.8, 0.7, 0.6, 0.3).into());
@@ -35,7 +34,7 @@ pub fn setup(
         });
 
         let enemy = materials.add(StandardMaterial {
-            base_color: Color::WHITE,
+            base_color: Color::RED,
             ..Default::default()
         });
 
@@ -53,6 +52,23 @@ pub fn setup(
             ..Default::default()
         });
 
+        let ground = materials.add(StandardMaterial {
+            base_color: Color::DARK_GRAY,
+            ..Default::default()
+        });
+
+        let bomb = materials.add(StandardMaterial {
+            base_color: Color::BLACK,
+            metallic: 1.0,
+            ..Default::default()
+        });
+
+        let explosion = materials.add(StandardMaterial {
+            base_color: Color::YELLOW,
+            emissive: Color::YELLOW,
+            ..Default::default()
+        });
+
         MaterialHandles {
             wall_normal,
             wall_hidden,
@@ -61,6 +77,9 @@ pub fn setup(
             enemy,
             floor_bg,
             floor_fg,
+            bomb,
+            explosion,
+            ground,
         }
     };
 
@@ -70,11 +89,13 @@ pub fn setup(
     for row in level.rows() {
         for block in row.iter() {
             // Each entry also needs a floor
+            let is_exit = matches!(block.kind, BlockType::Exit);
             setup_space(
                 &mut commands,
                 &mut meshes,
                 &material_handles,
                 (block.position.x, block.position.z),
+                is_exit,
             );
             match block.kind {
                 BlockType::WallBig => {
@@ -98,6 +119,22 @@ pub fn setup(
                     enemies.push((id, block.level_position));
                 }
                 BlockType::Space => {}
+                BlockType::Exit => {
+                    let p = block.position;
+                    commands
+                        .spawn_bundle(SpotLightBundle {
+                            spot_light: SpotLight {
+                                intensity: 100.0,
+                                shadows_enabled: true,
+                                radius: 8.0,
+                                ..default()
+                            },
+                            transform: Transform::from_xyz(p.x, 0.2, p.z).looking_at(p, Vec3::Z),
+                            visibility: Visibility { is_visible: false },
+                            ..default()
+                        })
+                        .insert(ExitLight);
+                }
             }
         }
     }
@@ -117,7 +154,16 @@ pub fn setup(
             shadows_enabled: false,
             ..default()
         },
-        transform: Transform::from_xyz(0.0, 8.0, 0.0),
+        transform: Transform::from_xyz(0.0, 7.0, 0.5),
+        ..default()
+    });
+    commands.spawn_bundle(SpotLightBundle {
+        spot_light: SpotLight {
+            intensity: 2500.0,
+            shadows_enabled: true,
+            ..default()
+        },
+        transform: Transform::from_xyz(0.0, 7.0, 0.5).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
     // camera
@@ -241,13 +287,13 @@ pub fn add_bomb(
     level_position: Position,
     position: Vec3,
 ) -> Entity {
-    let enemy_mesh = Mesh::from(shape::Cube {
+    let mesh = Mesh::from(shape::Cube {
         size: sizes::bomb_size,
     });
     commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(enemy_mesh),
-            material: materials.enemy.clone(),
+            mesh: meshes.add(mesh),
+            material: materials.bomb.clone(),
             transform: Transform::from_xyz(position.x, position.y, position.z),
             ..default()
         })
@@ -263,13 +309,13 @@ pub fn add_bomb_explosion(
     level_position: Position,
     position: Vec3,
 ) -> Entity {
-    let enemy_mesh = Mesh::from(shape::Cube {
+    let mesh = Mesh::from(shape::Cube {
         size: sizes::bomb_size,
     });
     commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(enemy_mesh),
-            material: materials.coin.clone(),
+            mesh: meshes.add(mesh),
+            material: materials.explosion.clone(),
             transform: Transform::from_xyz(position.x, position.y, position.z)
                 .with_scale(Vec3::ZERO),
             ..default()
@@ -284,8 +330,9 @@ pub fn setup_space(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &MaterialHandles,
     position: (f32, f32),
+    hides_exit: bool,
 ) {
-    commands
+    let parent = commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Plane {
                 size: sizes::field.x,
@@ -294,18 +341,34 @@ pub fn setup_space(
             transform: Transform::from_xyz(position.0, sizes::space.y - 0.01, position.1),
             ..default()
         })
-        .insert(Floor);
+        .insert(Floor)
+        .id();
 
-    commands
+    if hides_exit {
+        commands.entity(parent).insert(Exit);
+    }
+
+    let child1 = commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Plane {
                 size: sizes::space.x,
             })),
             material: materials.floor_bg.clone(),
-            transform: Transform::from_xyz(position.0, sizes::space.y, position.1),
+            transform: Transform::from_xyz(0.0, 0.01, 0.0),
             ..default()
         })
-        .insert(Floor);
+        .id();
+    let child2 = commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Cube {
+                size: sizes::field.x,
+            })),
+            material: materials.ground.clone(),
+            transform: Transform::from_xyz(0.0, -sizes::field.y, 0.0),
+            ..default()
+        })
+        .id();
+    commands.entity(parent).push_children(&[child1, child2]);
 }
 
 pub fn wobble(mut query: Query<(&mut Transform, &Wobbles)>, timer: Res<Time>, mut t: Local<f32>) {
@@ -489,21 +552,25 @@ pub fn wall_visibility(
 pub fn update_level(
     mut commands: Commands,
     mut level: ResMut<Level>,
-    player_query: Query<&Location, (With<Player>, Changed<Location>)>,
+    player_query: Query<(Entity, &Location, &Transform), (With<Player>, Changed<Location>)>,
     enemy_query: Query<(Entity, &Location), (With<Enemy>, Changed<Location>)>,
     mut score: ResMut<Score>,
 ) {
     for (entity, location) in enemy_query.iter() {
         level.enemy_positions.insert(entity, location.0);
     }
-    if let Some(player_location) = player_query.iter().next() {
+    if let Some((player_entity, player_location, player_transform)) = player_query.iter().next() {
         level.player_position = player_location.0;
         // check if player and enemies collide
         for position in level.enemy_positions.values() {
             if position == &player_location.0 {
-                println!("DEAD");
                 // FIXME: State trigger
             }
+        }
+        // check if the player is over the exit
+        if level.ending_position == player_location.0 {
+            // somehow jump to the next level
+            player_enter_exit(&mut commands, player_entity, player_transform)
         }
         let mut deleted_coins = Vec::new();
         for (entity, position) in level.coin_positions.iter() {
@@ -573,11 +640,12 @@ pub fn bomb_explosion_destruction(
     explosion_query: Query<(Entity, &Location), With<BombExplosion>>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut level: ResMut<Level>,
+    mut level_exit_writer: EventWriter<ShowLevelExitEvent>,
 ) {
     let mut removable_enemies = Vec::new();
     for (entity, location) in explosion_query.iter() {
         if level.player_position == location.0 {
-            println!("GAME OVER");
+            //println!("GAME OVER cause bombs");
         }
         for (entity, transform) in enemy_query.iter() {
             if level.enemy_positions[&entity] == location.0 {
@@ -589,6 +657,59 @@ pub fn bomb_explosion_destruction(
     for entity in removable_enemies {
         level.enemy_positions.remove(&entity);
     }
+    // if there're no enemies left, start the end level condition
+    if level.enemy_positions.is_empty() && !level.ending_visible {
+        level_exit_writer.send(ShowLevelExitEvent);
+        level.ending_visible = true;
+    }
+}
+
+pub fn show_level_exit(
+    mut commands: Commands,
+    mut event: EventReader<ShowLevelExitEvent>,
+    exits: Query<(Entity, &Transform), With<Exit>>,
+    mut lamps: Query<&mut Visibility, With<ExitLight>>,
+) {
+    for ev in event.iter() {
+        for (entity, transform) in exits.iter() {
+            let tween = Tween::new(
+                EaseFunction::BounceOut,
+                TweeningType::Once,
+                Duration::from_secs_f32(2.5),
+                TransformPositionLens {
+                    start: transform.translation,
+                    end: Vec3::new(
+                        transform.translation.x,
+                        transform.translation.y - 1.1,
+                        transform.translation.z,
+                    ),
+                },
+            );
+            commands.entity(entity).insert(Animator::new(tween));
+            let mut vis_map = lamps.single_mut();
+            vis_map.is_visible = true;
+        }
+    }
+}
+
+fn player_enter_exit(commands: &mut Commands, entity: Entity, transform: &Transform) {
+    let tween = Tween::new(
+        EaseFunction::BounceOut,
+        TweeningType::Once,
+        Duration::from_secs_f32(0.5),
+        TransformPositionLens {
+            start: transform.translation,
+            end: Vec3::new(
+                transform.translation.x,
+                transform.translation.y - 1.5,
+                transform.translation.z,
+            ),
+        },
+    );
+    commands
+        .entity(entity)
+        .remove_bundle::<OutlineBundle>()
+        .insert(Animator::new(tween));
 }
 
 fn kill_enemy(commands: &mut Commands, entity: Entity, transform: &Transform) {

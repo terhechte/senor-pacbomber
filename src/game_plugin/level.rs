@@ -10,10 +10,12 @@ pub struct Level {
     pub offsets: (f32, f32),
     pub rows: Vec<Vec<Block>>,
     pub player_position: Position,
+    pub ending_position: Position,
     pub enemy_positions: HashMap<Entity, Position>,
     pub coin_positions: HashMap<Entity, Position>,
     pub bombs: HashMap<Entity, (usize, Position)>,
     pub bomb_size: usize,
+    pub ending_visible: bool,
 }
 
 impl Level {
@@ -29,6 +31,7 @@ impl Level {
         let mut x_size = 0;
 
         let mut player_position: Option<Position> = None;
+        let mut ending_position: Option<Position> = None;
 
         for (x_index, line) in lines.iter().enumerate() {
             let chars: Vec<char> = line.chars().collect();
@@ -47,6 +50,10 @@ impl Level {
                     player_position = Some(level_position);
                 }
 
+                if matches!(block, BlockType::Exit) {
+                    ending_position = Some(level_position);
+                }
+
                 row.push(Block {
                     kind: block,
                     position: Vec3::new(position.1, 0.0, position.0),
@@ -58,16 +65,19 @@ impl Level {
         }
 
         let player_position = player_position.expect("Expect a player position in the level!");
+        let ending_position = ending_position.expect("Expect an ending position in the level!");
 
         Level {
             size: Position::new(x_size, z_size),
             offsets: (x_offset, z_offset),
             rows,
             player_position,
+            ending_position,
             enemy_positions: HashMap::new(),
             coin_positions: HashMap::new(),
             bombs: HashMap::new(),
             bomb_size: 5,
+            ending_visible: false,
         }
     }
 

@@ -3,9 +3,11 @@ mod logic;
 mod statics;
 mod types;
 
-use bevy::{prelude::*, time::FixedTimestep};
+use bevy::prelude::*;
 use bevy_mod_outline::*;
 use bevy_tweening::TweeningPlugin;
+
+use self::types::ShowLevelExitEvent;
 
 use super::GameState;
 
@@ -13,12 +15,11 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        dbg!("BUILD");
         app.insert_resource(types::Score::default())
             .insert_resource(level::Level::new(statics::LEVEL_DATA))
             .add_plugin(OutlinePlugin)
             .add_plugin(TweeningPlugin)
-            // .add_startup_system(logic::setup)
+            .add_event::<ShowLevelExitEvent>()
             .add_system_set(SystemSet::on_enter(GameState::Game).with_system(logic::setup))
             .add_system_set(
                 SystemSet::on_update(GameState::Game)
@@ -30,7 +31,8 @@ impl Plugin for GamePlugin {
                     .with_system(logic::bomb_counter)
                     .with_system(logic::bomb_explosion_destruction)
                     .with_system(logic::enemy_logic)
-                    .with_system(logic::move_entities),
+                    .with_system(logic::move_entities)
+                    .with_system(logic::show_level_exit),
             );
     }
 }
