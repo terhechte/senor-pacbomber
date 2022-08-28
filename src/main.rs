@@ -16,12 +16,12 @@ pub enum GameState {
 
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::rgb(0.1, 0.1, 0.1)))
+        .insert_resource(ClearColor(Color::rgb(20. / 255., 20. / 255., 20. / 255.)))
         .insert_resource(WindowDescriptor {
             title: "I am a window!".to_string(),
-            width: 844.,
-            height: 600.,
-            resizable: false,
+            width: 900.,
+            height: 660.,
+            // resizable: false,
             ..default()
         })
         .add_state(GameState::Menu)
@@ -35,12 +35,7 @@ fn main() {
         .run();
 }
 
-fn init(
-    mut commands: Commands,
-    mut assets: ResMut<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
+fn init(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial>>) {
     let material_handles = {
         let wall_normal = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
         let wall_hidden = materials.add(Color::rgba(0.8, 0.7, 0.6, 0.3).into());

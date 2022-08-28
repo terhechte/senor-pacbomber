@@ -20,7 +20,6 @@ pub fn first_level(mut commands: Commands) {
 
 pub fn level_loading(
     mut commands: Commands,
-    mut assets: ResMut<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut level: ResMut<Level>,
     current_level: Res<CurrentLevel>,
@@ -121,16 +120,15 @@ pub fn level_loading(
 
 pub fn finish_level(
     mut commands: Commands,
-    mut reader: EventReader<GoNextLevelEvent>,
+    reader: EventReader<GoNextLevelEvent>,
     query: Query<Entity, With<LevelItem>>,
-    mut current: ResMut<CurrentLevel>,
+    current: ResMut<CurrentLevel>,
     mut app_state: ResMut<State<GameState>>,
     mut score: ResMut<Score>,
 ) {
-    let event = match reader.iter().next() {
-        Some(n) => n,
-        None => return,
-    };
+    if reader.is_empty() {
+        return;
+    }
     for entity in query.iter() {
         commands.entity(entity).despawn_recursive();
     }
@@ -452,8 +450,6 @@ pub fn wobble_enemy(mut query: Query<&mut Transform, With<Enemy>>, timer: Res<Ti
 
 pub fn enemy_logic(
     mut query: Query<(&mut Movement, &Transform, &Location, &Speed), With<Enemy>>,
-    timer: Res<Time>,
-    // mut last_step: Local<f32>,
     level: Res<Level>,
     player_query: Query<&Transform, With<Player>>,
 ) {
@@ -463,7 +459,7 @@ pub fn enemy_logic(
         None => return,
     };
 
-    for (mut velocity, transform, position, speed) in query.iter_mut() {
+    for (mut velocity, transform, position, _) in query.iter_mut() {
         // if we're still moving, do nothing
         if velocity.value > 0.0 {
             continue;
@@ -693,7 +689,6 @@ pub fn tween_done_remove_handler(
     mut commands: Commands,
     mut done: EventReader<TweenCompleted>,
     mut writer: EventWriter<GoNextLevelEvent>,
-    level: Res<Level>,
     mut app_state: ResMut<State<GameState>>,
 ) {
     for ev in done.iter() {
@@ -748,7 +743,7 @@ pub fn bomb_explosion_destruction(
     mut player_sender: EventWriter<PlayerDiedEvent>,
 ) {
     let mut removable_enemies = Vec::new();
-    for (entity, location) in explosion_query.iter() {
+    for (_, location) in explosion_query.iter() {
         if level.player_position == location.0 {
             player_sender.send(PlayerDiedEvent);
         }
@@ -782,7 +777,7 @@ pub fn show_level_exit(
     mut lamps: Query<&mut Visibility, With<ExitLight>>,
     mut level: ResMut<Level>,
 ) {
-    for ev in event.iter() {
+    for _ in event.iter() {
         for (entity, transform) in exits.iter() {
             let tween = Tween::new(
                 EaseFunction::BounceOut,

@@ -77,7 +77,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     // bevy logo (image)
                     parent.spawn_bundle(ImageBundle {
                         style: Style {
-                            size: Size::new(Val::Px(700.0), Val::Px(270.0)),
+                            size: Size::new(Val::Px(700.0), Val::Px(571.0)),
                             ..default()
                         },
                         image: asset_server.load("images/lost.png").into(),
@@ -95,15 +95,15 @@ fn exit(mut commands: Commands, destroy_query: Query<Entity, With<LocalEntity>>)
 }
 
 fn keyboard_input_system(
-    mut commands: Commands,
     keyboard_input: Res<Input<KeyCode>>,
     mut app_state: ResMut<State<GameState>>,
 ) {
     if keyboard_input.pressed(KeyCode::Return) {
-        app_state.set(GameState::Game);
+        app_state.set(GameState::Game).unwrap();
     }
 }
 
+#[allow(clippy::complexity)]
 fn button_system(
     mut interaction_query: Query<
         (&Interaction, &mut UiColor, &Children),
