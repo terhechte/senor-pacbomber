@@ -1,5 +1,5 @@
-use crate::GameState;
-use bevy::prelude::*;
+use crate::{CurrentMusic, GameState};
+use bevy::{audio::AudioSink, prelude::*};
 
 pub struct LoadingPlugin;
 
@@ -14,7 +14,15 @@ impl Plugin for LoadingPlugin {
     }
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    audio_sinks: Res<Assets<AudioSink>>,
+    asset_server: Res<AssetServer>,
+    playback: Res<CurrentMusic>,
+) {
+    if let Some(sink) = audio_sinks.get(&playback.0) {
+        sink.stop();
+    }
     commands
         .spawn_bundle(NodeBundle {
             style: Style {

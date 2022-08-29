@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{audio::AudioSink, prelude::*};
 use bevy_mod_outline::*;
 use bevy_tweening::{
     lens::{TransformPositionLens, TransformRotationLens, TransformScaleLens},
@@ -6,16 +6,37 @@ use bevy_tweening::{
 };
 use std::{cmp::Ordering, f32::consts::TAU, time::Duration};
 
-use crate::{GameState, MaterialHandles, MeshHandles};
+use crate::{
+    types::{AudioHandles, CurrentMusic},
+    GameState, MaterialHandles, MeshHandles,
+};
 
-use super::statics::{self, sizes, FPS, USER_DIED_PAYLOAD};
+use super::statics::{self, sizes, FPS, LEVEL_BOMBS, USER_DIED_PAYLOAD};
 use super::types::*;
 use super::{level::Level, statics::LEVEL_COMPLETED_PAYLOAD};
 
-pub fn first_level(mut commands: Commands) {
+pub fn first_level(
+    mut commands: Commands,
+    audio_sinks: Res<Assets<AudioSink>>,
+    audio: Res<Audio>,
+    mut playback: ResMut<CurrentMusic>,
+    audio_handles: Res<AudioHandles>,
+) {
     commands.insert_resource(super::level::Level::new(0));
     commands.insert_resource(CurrentLevel(0));
     commands.insert_resource(super::types::Score::default());
+
+    if let Some(sink) = audio_sinks.get(&playback.0) {
+        sink.stop();
+    }
+
+    // to simplify things, we just continue playing music from now on
+    let weak_handle = audio.play_with_settings(
+        audio_handles.music.clone(),
+        PlaybackSettings::LOOP.with_volume(0.5),
+    );
+    let strong_handle = audio_sinks.get_handle(weak_handle);
+    playback.0 = strong_handle;
 }
 
 pub fn level_loading(
@@ -129,32 +150,31 @@ pub fn level_loading(
 
 pub fn finish_level(
     mut commands: Commands,
-    reader: EventReader<GoNextLevelEvent>,
+    mut reader: EventReader<GoNextLevelEvent>,
     query: Query<Entity, With<LevelItem>>,
     current: ResMut<CurrentLevel>,
     mut app_state: ResMut<State<GameState>>,
     mut score: ResMut<Score>,
 ) {
-    if reader.is_empty() {
-        return;
-    }
-    for entity in query.iter() {
-        commands.entity(entity).despawn_recursive();
-    }
-    let next = match current.next() {
-        Some(n) => n,
-        None => {
-            // Transition to the ending
-            app_state.set(GameState::Won).unwrap();
-            return;
+    for _ in reader.iter() {
+        for entity in query.iter() {
+            commands.entity(entity).despawn_recursive();
         }
-    };
+        let next = match current.next() {
+            Some(n) => n,
+            None => {
+                // Transition to the ending
+                app_state.set(GameState::Won).unwrap();
+                return;
+            }
+        };
 
-    // replenish the bombs
-    score.bombs = 3;
+        // replenish the bombs
+        score.bombs = LEVEL_BOMBS[next.0];
 
-    commands.insert_resource(super::level::Level::new(next.0));
-    commands.insert_resource(next);
+        commands.insert_resource(super::level::Level::new(next.0));
+        commands.insert_resource(next);
+    }
 }
 
 pub fn cleanup_level(mut commands: Commands, query: Query<Entity, With<LevelItem>>) {
@@ -507,7 +527,7 @@ pub fn keyboard_input_system(
             (KeyCode::Up, BoardDirection::new(0, -1)),
             (KeyCode::Down, BoardDirection::new(0, 1)),
         ] {
-            if keyboard_input.just_pressed(code) {
+            if keyboard_input.pressed(code) {
                 let directions = level.free_directions(location.0);
                 if directions.contains(&direction) {
                     velocity.direction = direction;
@@ -607,6 +627,7 @@ pub fn wall_visibility(
 
 /// Updates the level whenever player or enemy change their location
 #[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 pub fn update_level(
     mut commands: Commands,
     mut level: ResMut<Level>,
@@ -614,6 +635,8 @@ pub fn update_level(
     enemy_query: Query<(Entity, &Location), (With<Enemy>, Changed<Location>)>,
     mut score: ResMut<Score>,
     mut player_sender: EventWriter<PlayerDiedEvent>,
+    audio: Res<Audio>,
+    sounds: Res<AudioHandles>,
 ) {
     for (entity, location) in enemy_query.iter() {
         level.enemy_positions.insert(entity, location.0);
@@ -640,6 +663,7 @@ pub fn update_level(
                 destroy_coin(&mut commands, entity);
                 score.coins += 1;
                 deleted_coins.push(*entity);
+                audio.play(sounds.coin.clone());
             }
         }
         for coin in deleted_coins {
@@ -665,9 +689,11 @@ fn destroy_coin(commands: &mut Commands, entity: &Entity) {
 pub fn player_did_die_system(
     mut commands: Commands,
     player: Query<(Entity, &Transform), With<Player>>,
-    player_reader: EventReader<PlayerDiedEvent>,
+    mut player_reader: EventReader<PlayerDiedEvent>,
+    audio: Res<Audio>,
+    sounds: Res<AudioHandles>,
 ) {
-    if !player_reader.is_empty() {
+    for _ in player_reader.iter() {
         let (entity, transform) = player.single();
         implode_entity(&mut commands, entity, transform, USER_DIED_PAYLOAD);
         commands
@@ -675,6 +701,7 @@ pub fn player_did_die_system(
             .remove::<Movement>()
             .remove::<Speed>();
         // send a brief delay before going to loose
+        audio.play(sounds.kill.clone());
     }
 }
 
@@ -696,6 +723,7 @@ pub fn tween_done_remove_handler(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn bomb_counter(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Bomb, &mut Transform)>,
@@ -703,6 +731,8 @@ pub fn bomb_counter(
     mut level: ResMut<Level>,
     material_handles: Res<MaterialHandles>,
     mut meshes: ResMut<Assets<Mesh>>,
+    audio: Res<Audio>,
+    sounds: Res<AudioHandles>,
 ) {
     let change = time.delta_seconds();
     for (entity, mut bomb, mut transform) in query.iter_mut() {
@@ -722,6 +752,9 @@ pub fn bomb_counter(
                 );
                 insert_bomb_explosion_tween(&mut commands, id, delay_sec);
             }
+            if level.bombs.contains_key(&entity) {
+                audio.play(sounds.explosion.clone());
+            }
             level.bombs.remove(&entity);
         } else if bomb.0 <= 0.5 {
             // the closer to zero we get, the more the bomb shakes
@@ -731,6 +764,7 @@ pub fn bomb_counter(
 }
 
 // if enemy or player interacts with a bomb explosion, remove them
+#[allow(clippy::too_many_arguments)]
 pub fn bomb_explosion_destruction(
     mut commands: Commands,
     explosion_query: Query<(Entity, &Location), With<BombExplosion>>,
@@ -738,6 +772,8 @@ pub fn bomb_explosion_destruction(
     mut level: ResMut<Level>,
     mut level_exit_writer: EventWriter<ShowLevelExitEvent>,
     mut player_sender: EventWriter<PlayerDiedEvent>,
+    audio: Res<Audio>,
+    sounds: Res<AudioHandles>,
 ) {
     let mut removable_enemies = Vec::new();
     for (_, location) in explosion_query.iter() {
@@ -757,6 +793,9 @@ pub fn bomb_explosion_destruction(
         }
     }
     for entity in removable_enemies {
+        if level.enemy_positions.contains_key(&entity) {
+            audio.play(sounds.kill.clone());
+        }
         level.enemy_positions.remove(&entity);
     }
     // if there're no enemies left, start the end level condition

@@ -1,6 +1,6 @@
 use std::ops::Mul;
 
-use super::statics::{sizes, LEVELS};
+use super::statics::{sizes, LEVELS, LEVEL_BOMBS};
 use bevy::prelude::*;
 
 // ################################################################################
@@ -189,7 +189,7 @@ impl Default for Score {
         Self {
             coins: 0,
             moves: 0,
-            bombs: 3,
+            bombs: LEVEL_BOMBS[0],
         }
     }
 }

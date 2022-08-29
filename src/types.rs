@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{audio::AudioSink, prelude::*};
 pub struct MaterialHandles {
     pub wall_normal: Handle<StandardMaterial>,
     pub wall_hidden: Handle<StandardMaterial>,
@@ -24,3 +24,13 @@ pub struct MeshHandles {
     pub floor_bg: Handle<Mesh>,
     pub floor_cube: Handle<Mesh>,
 }
+
+pub struct AudioHandles {
+    pub intro: Handle<AudioSource>,
+    pub music: Handle<AudioSource>,
+    pub kill: Handle<AudioSource>,
+    pub coin: Handle<AudioSource>,
+    pub explosion: Handle<AudioSource>,
+}
+
+pub struct CurrentMusic(pub Handle<AudioSink>);

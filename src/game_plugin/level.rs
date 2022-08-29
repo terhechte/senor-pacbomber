@@ -17,6 +17,7 @@ pub struct Level {
     pub bomb_size: usize,
     pub ending_visible: bool,
     pub done_loading: bool,
+    pub finished: bool,
 }
 
 impl Level {
@@ -84,6 +85,7 @@ impl Level {
             bomb_size: 3,
             ending_visible: false,
             done_loading: false,
+            finished: false,
         }
     }
 

@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{audio::AudioSink, prelude::*};
 use bevy_mod_outline::*;
 use bevy_tweening::TweeningPlugin;
 
@@ -10,7 +10,10 @@ mod types;
 mod won_plugin;
 
 use game_plugin::BlockType;
+use types::CurrentMusic;
 pub use types::{MaterialHandles, MeshHandles};
+
+use crate::types::AudioHandles;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum GameState {
@@ -42,15 +45,43 @@ fn main() {
         .add_plugin(won_plugin::WonPlugin)
         .add_plugin(lost_plugin::LostPlugin)
         .add_plugin(loading_plugin::LoadingPlugin)
-        .add_startup_system(init)
+        .add_startup_system(cache_assets)
         .run();
 }
 
-fn init(
+fn cache_assets(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    audio: Res<Audio>,
+    audio_sinks: Res<Assets<AudioSink>>,
 ) {
+    // Audio
+    let audio_handles = {
+        let intro = asset_server.load("sounds/intro.ogg");
+        let music = asset_server.load("sounds/music.ogg");
+        let coin = asset_server.load("sounds/coin.ogg");
+        let kill = asset_server.load("sounds/kill.ogg");
+        let explosion = asset_server.load("sounds/explosion.ogg");
+        AudioHandles {
+            intro,
+            music,
+            kill,
+            coin,
+            explosion,
+        }
+    };
+    let weak_handle = audio.play_with_settings(
+        audio_handles.intro.clone(),
+        PlaybackSettings::LOOP.with_volume(0.5),
+    );
+    let strong_handle = audio_sinks.get_handle(weak_handle);
+    commands.insert_resource(CurrentMusic(strong_handle));
+    commands.insert_resource(audio_handles);
+
+    // Materials
+
     let material_handles = {
         let wall_normal = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
         let wall_hidden = materials.add(Color::rgba(0.8, 0.7, 0.6, 0.3).into());
