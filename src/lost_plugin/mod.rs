@@ -97,7 +97,7 @@ fn setup(
                             size: Size::new(Val::Px(700.0), Val::Px(452.0)),
                             ..default()
                         },
-                        image: asset_server.load("images/lost.png").into(),
+                        image: asset_server.load("images/lost.jpg").into(),
                         ..default()
                     });
                 });

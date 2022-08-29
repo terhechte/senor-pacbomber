@@ -525,15 +525,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_pacman3d"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_mod_outline",
- "bevy_tweening",
-]
-
-[[package]]
 name = "bevy_pbr"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1711,6 +1702,7 @@ dependencies = [
  "bytemuck",
  "byteorder",
  "color_quant",
+ "jpeg-decoder",
  "num-rational",
  "num-traits",
  "png",
@@ -1821,6 +1813,12 @@ checksum = "af25a77299a7f711a01975c35a6a424eb6862092cc2d6c72c4ed6cbc56dfc1fa"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "jpeg-decoder"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9478aa10f73e7528198d75109c8be5cd7d15fb530238040148d5f9a22d4c5b3b"
 
 [[package]]
 name = "js-sys"
@@ -2314,6 +2312,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07ef1a404ae479dd6906f4fa2c88b3c94028f1284beb42a47c183a7c27ee9a3e"
 dependencies = [
  "ttf-parser",
+]
+
+[[package]]
+name = "pacbomber"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_mod_outline",
+ "bevy_tweening",
 ]
 
 [[package]]

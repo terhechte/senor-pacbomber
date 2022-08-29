@@ -704,14 +704,14 @@ pub fn tween_done_remove_handler(
 
 pub fn bomb_counter(
     mut commands: Commands,
-    mut query: Query<(Entity, &mut Bomb)>,
+    mut query: Query<(Entity, &mut Bomb, &mut Transform)>,
     time: Res<Time>,
     mut level: ResMut<Level>,
     material_handles: Res<MaterialHandles>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let change = time.delta_seconds();
-    for (entity, mut bomb) in query.iter_mut() {
+    for (entity, mut bomb, mut transform) in query.iter_mut() {
         bomb.0 -= change;
         if bomb.0 <= 0.0 {
             commands.entity(entity).despawn_recursive();
@@ -729,6 +729,9 @@ pub fn bomb_counter(
                 insert_bomb_explosion_tween(&mut commands, id, delay_sec);
             }
             level.bombs.remove(&entity);
+        } else if bomb.0 <= 0.5 {
+            // the closer to zero we get, the more the bomb shakes
+            transform.translation.y = change.sin() * 10.;
         }
     }
 }

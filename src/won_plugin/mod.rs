@@ -89,7 +89,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, score: Res<Scor
                             size: Size::new(Val::Px(700.0), Val::Px(499.0)),
                             ..default()
                         },
-                        image: asset_server.load("images/won.png").into(),
+                        image: asset_server.load("images/won.jpg").into(),
                         ..default()
                     });
                 });

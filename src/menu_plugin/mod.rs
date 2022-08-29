@@ -80,7 +80,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                             size: Size::new(Val::Px(900.0), Val::Px(538.0)),
                             ..default()
                         },
-                        image: asset_server.load("images/title.png").into(),
+                        image: asset_server.load("images/title.jpg").into(),
                         ..default()
                     });
                 });

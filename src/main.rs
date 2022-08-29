@@ -19,10 +19,10 @@ fn main() {
         .insert_resource(game_plugin::Score::default())
         .insert_resource(ClearColor(Color::rgb(20. / 255., 20. / 255., 20. / 255.)))
         .insert_resource(WindowDescriptor {
-            title: "I am a window!".to_string(),
+            title: "PACBOMBER".to_string(),
             width: 900.,
             height: 660.,
-            // resizable: false,
+            resizable: false,
             ..default()
         })
         .add_state(GameState::Menu)

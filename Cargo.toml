@@ -1,12 +1,11 @@
 [package]
-name = "bevy_pacman3d"
+name = "pacbomber"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#bevy = { git = "https://github.com/bevyengine/bevy", rev = "2fa7b3b6d0d5e5e7e48ae1c68affa4edc65cbe6a" }
-bevy = "0.8"
+bevy = { version = "0.8", features = ["jpeg"] }
 bevy_mod_outline = "0.2.2"
 bevy_tweening = "0.5.0"
