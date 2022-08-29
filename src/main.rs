@@ -1,15 +1,21 @@
 use bevy::{prelude::*, window::close_on_esc};
-use game_plugin::MaterialHandles;
+use bevy_mod_outline::*;
+use bevy_tweening::TweeningPlugin;
 
 mod game_plugin;
 mod lost_plugin;
 mod menu_plugin;
+mod types;
 mod won_plugin;
+
+use game_plugin::BlockType;
+pub use types::{MaterialHandles, MeshHandles};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum GameState {
     Menu,
     Game,
+    Running,
     Lost,
     Won,
 }
@@ -27,6 +33,8 @@ fn main() {
         })
         .add_state(GameState::Menu)
         .add_plugins(DefaultPlugins)
+        .add_plugin(OutlinePlugin)
+        .add_plugin(TweeningPlugin)
         .add_plugin(game_plugin::GamePlugin)
         .add_plugin(menu_plugin::MenuPlugin)
         .add_plugin(won_plugin::WonPlugin)
@@ -36,7 +44,11 @@ fn main() {
         .run();
 }
 
-fn init(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial>>) {
+fn init(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     let material_handles = {
         let wall_normal = materials.add(Color::rgb(0.8, 0.7, 0.6).into());
         let wall_hidden = materials.add(Color::rgba(0.8, 0.7, 0.6, 0.3).into());
@@ -134,4 +146,48 @@ fn init(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial>>)
         ..default()
     });
     commands.insert_resource(material_handles);
+
+    // Meshes
+
+    let meshes = {
+        let s = BlockType::WallBig.size();
+        let wall = Mesh::from(shape::Box::new(s.x, s.y, s.z));
+
+        let s = BlockType::WallSmallV.size();
+        let wall_v = Mesh::from(shape::Box::new(s.x, s.y, s.z));
+
+        let s = BlockType::WallSmallH.size();
+        let wall_h = Mesh::from(shape::Box::new(s.x, s.y, s.z));
+
+        let s = BlockType::Coin.size();
+        let coin = Mesh::from(shape::Torus {
+            radius: s.x,
+            ring_radius: s.x * 0.25,
+            subdivisions_segments: 8,
+            subdivisions_sides: 6,
+        });
+
+        let enemy = Mesh::from(shape::Cube { size: 0.2 });
+        let enemy_eye = Mesh::from(shape::Cube { size: 0.08 });
+
+        let s = game_plugin::sizes::field;
+        let floor_fg = Mesh::from(shape::Plane { size: s.x });
+        let s = game_plugin::sizes::space;
+        let floor_bg = Mesh::from(shape::Plane { size: s.x });
+        let floor_cube = Mesh::from(shape::Cube { size: s.x });
+
+        MeshHandles {
+            wall: meshes.add(wall),
+            wall_h: meshes.add(wall_h),
+            wall_v: meshes.add(wall_v),
+            coin: meshes.add(coin),
+            enemy: meshes.add(enemy),
+            enemy_eye: meshes.add(enemy_eye),
+            floor_fg: meshes.add(floor_fg),
+            floor_bg: meshes.add(floor_bg),
+            floor_cube: meshes.add(floor_cube),
+        }
+    };
+    commands.insert_resource(meshes);
+    println!("DONE LOADING");
 }

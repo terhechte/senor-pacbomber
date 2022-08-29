@@ -60,20 +60,6 @@ impl From<char> for BlockType {
     }
 }
 
-pub struct MaterialHandles {
-    pub wall_normal: Handle<StandardMaterial>,
-    pub wall_hidden: Handle<StandardMaterial>,
-    pub coin: Handle<StandardMaterial>,
-    pub player: Handle<StandardMaterial>,
-    pub enemy: Handle<StandardMaterial>,
-    pub floor_bg: Handle<StandardMaterial>,
-    pub floor_fg: Handle<StandardMaterial>,
-    pub ground: Handle<StandardMaterial>,
-    pub bomb: Handle<StandardMaterial>,
-    pub explosion: Handle<StandardMaterial>,
-    pub white: Handle<StandardMaterial>,
-}
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default, Hash)]
 pub struct Position {
     pub x: usize,

@@ -5,31 +5,30 @@ mod types;
 pub mod ui;
 
 use bevy::prelude::*;
-use bevy_mod_outline::*;
-use bevy_tweening::TweeningPlugin;
 
 use self::types::{GoNextLevelEvent, PlayerDiedEvent, ShowLevelExitEvent};
 
 use super::GameState;
 
-pub use types::MaterialHandles;
-pub use types::{CurrentLevel, Score};
+pub use statics::sizes;
+pub use types::{BlockType, CurrentLevel, Score};
 
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugin(OutlinePlugin)
-            .add_plugin(TweeningPlugin)
-            .add_event::<ShowLevelExitEvent>()
+        app.add_event::<ShowLevelExitEvent>()
             .add_event::<GoNextLevelEvent>()
             .add_event::<PlayerDiedEvent>()
-            .add_system_set(SystemSet::on_enter(GameState::Game).with_system(logic::first_level))
             .add_system_set(SystemSet::on_enter(GameState::Game).with_system(ui::setup_ui))
-            .add_system_set(SystemSet::on_exit(GameState::Game).with_system(logic::cleanup_level))
-            .add_system_set(SystemSet::on_exit(GameState::Game).with_system(ui::cleanup_ui))
+            .add_system_set(SystemSet::on_update(GameState::Game).with_system(logic::level_loading))
+            .add_system_set(SystemSet::on_enter(GameState::Game).with_system(logic::first_level))
             .add_system_set(
-                SystemSet::on_update(GameState::Game)
+                SystemSet::on_exit(GameState::Running).with_system(logic::cleanup_level),
+            )
+            .add_system_set(SystemSet::on_exit(GameState::Running).with_system(ui::cleanup_ui))
+            .add_system_set(
+                SystemSet::on_update(GameState::Running)
                     .with_system(logic::level_loading)
                     .with_system(logic::wobble)
                     .with_system(logic::wobble_enemy)

@@ -6,7 +6,7 @@ use bevy_tweening::{
 };
 use std::{cmp::Ordering, f32::consts::TAU, time::Duration};
 
-use crate::GameState;
+use crate::{GameState, MaterialHandles, MeshHandles};
 
 use super::statics::{self, sizes, FPS, USER_DIED_PAYLOAD};
 use super::types::*;
@@ -24,9 +24,14 @@ pub fn level_loading(
     mut level: ResMut<Level>,
     current_level: Res<CurrentLevel>,
     material_handles: Res<MaterialHandles>,
+    mesh_handles: Res<MeshHandles>,
 ) {
     // only setup a new level if the level changed
     if !current_level.is_changed() {
+        return;
+    }
+
+    if level.done_loading {
         return;
     }
 
@@ -41,7 +46,7 @@ pub fn level_loading(
             let is_exit = matches!(block.kind, BlockType::Exit);
             children.push(setup_space(
                 &mut commands,
-                &mut meshes,
+                &mesh_handles,
                 &material_handles,
                 (block.position.x, block.position.z),
                 is_exit,
@@ -49,24 +54,24 @@ pub fn level_loading(
             match block.kind {
                 BlockType::WallBig => children.push(setup_wall(
                     &mut commands,
-                    &mut meshes,
+                    mesh_handles.wall.clone(),
                     &material_handles,
                     block,
                 )),
                 BlockType::WallSmallV => children.push(setup_wall(
                     &mut commands,
-                    &mut meshes,
+                    mesh_handles.wall_v.clone(),
                     &material_handles,
                     block,
                 )),
                 BlockType::WallSmallH => children.push(setup_wall(
                     &mut commands,
-                    &mut meshes,
+                    mesh_handles.wall_h.clone(),
                     &material_handles,
                     block,
                 )),
                 BlockType::Coin => {
-                    let id = setup_coin(&mut commands, &mut meshes, &material_handles, block);
+                    let id = setup_coin(&mut commands, &mesh_handles, &material_handles, block);
                     coins.push((id, block.level_position));
                     children.push(id);
                 }
@@ -77,7 +82,7 @@ pub fn level_loading(
                     block,
                 )),
                 BlockType::Enemy => {
-                    let id = setup_enemy(&mut commands, &mut meshes, &material_handles, block);
+                    let id = setup_enemy(&mut commands, &mesh_handles, &material_handles, block);
                     enemies.push((id, block.level_position));
                     children.push(id);
                 }
@@ -156,16 +161,15 @@ pub fn cleanup_level(mut commands: Commands, query: Query<Entity, With<LevelItem
 
 pub fn setup_wall(
     commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
+    mesh: Handle<Mesh>,
     materials: &MaterialHandles,
     block: &Block,
 ) -> Entity {
-    let s = block.kind.size();
     let p = block.position;
-    let wall_mesh = Mesh::from(shape::Box::new(s.x, s.y, s.z));
+    let s = block.kind.size();
     commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(wall_mesh),
+            mesh,
             material: materials.wall_normal.clone(),
             transform: Transform::from_xyz(p.x, p.y, p.z),
             ..default()
@@ -178,21 +182,14 @@ pub fn setup_wall(
 
 pub fn setup_coin(
     commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
+    meshes: &MeshHandles,
     materials: &MaterialHandles,
     block: &Block,
 ) -> Entity {
-    let s = block.kind.size();
     let p = block.position;
-    let coin_mesh = Mesh::from(shape::Torus {
-        radius: s.x,
-        ring_radius: s.x * 0.25,
-        subdivisions_segments: 8,
-        subdivisions_sides: 6,
-    });
     commands
         .spawn_bundle(MaterialMeshBundle {
-            mesh: meshes.add(coin_mesh),
+            mesh: meshes.coin.clone(),
             material: materials.coin.clone(),
             transform: Transform::from_xyz(p.x, p.y, p.z),
             ..default()
@@ -212,7 +209,7 @@ pub fn setup_player(
     let p = block.position;
     let mut player_mesh = Mesh::from(shape::Icosphere {
         radius: s.x,
-        subdivisions: 4,
+        subdivisions: 1,
     });
     player_mesh.generate_outline_normals().unwrap();
     let id = commands
@@ -252,16 +249,15 @@ pub fn setup_player(
 
 pub fn setup_enemy(
     commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
+    meshes: &MeshHandles,
     materials: &MaterialHandles,
     block: &Block,
 ) -> Entity {
     let s = block.kind.size();
     let p = block.position;
-    let enemy_mesh = Mesh::from(shape::Cube { size: 0.2 });
     let parent = commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(enemy_mesh),
+            mesh: meshes.enemy.clone(),
             material: materials.enemy.clone(),
             transform: Transform::from_xyz(p.x, p.y, p.z),
             ..default()
@@ -269,7 +265,7 @@ pub fn setup_enemy(
         .id();
     let eye1 = commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.08 })),
+            mesh: meshes.enemy_eye.clone(),
             material: materials.white.clone(),
             transform: Transform::from_xyz(0.1, 0.01, 0.01),
             ..default()
@@ -277,7 +273,7 @@ pub fn setup_enemy(
         .id();
     let eye2 = commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.08 })),
+            mesh: meshes.enemy_eye.clone(),
             material: materials.white.clone(),
             transform: Transform::from_xyz(-0.1, 0.01, 0.01),
             ..default()
@@ -285,7 +281,7 @@ pub fn setup_enemy(
         .id();
     let eye3 = commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.08 })),
+            mesh: meshes.enemy_eye.clone(),
             material: materials.white.clone(),
             transform: Transform::from_xyz(0.01, 0.01, 0.1),
             ..default()
@@ -293,7 +289,7 @@ pub fn setup_enemy(
         .id();
     let eye4 = commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.08 })),
+            mesh: meshes.enemy_eye.clone(),
             material: materials.white.clone(),
             transform: Transform::from_xyz(0.01, 0.01, -0.1),
             ..default()
@@ -381,16 +377,14 @@ pub fn add_bomb_explosion(
 
 pub fn setup_space(
     commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
+    meshes: &MeshHandles,
     materials: &MaterialHandles,
     position: (f32, f32),
     hides_exit: bool,
 ) -> Entity {
     let parent = commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Plane {
-                size: sizes::field.x,
-            })),
+            mesh: meshes.floor_fg.clone(),
             material: materials.floor_fg.clone(),
             transform: Transform::from_xyz(position.0, sizes::space.y - 0.01, position.1),
             ..default()
@@ -404,9 +398,7 @@ pub fn setup_space(
 
     let child1 = commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Plane {
-                size: sizes::space.x,
-            })),
+            mesh: meshes.floor_bg.clone(),
             material: materials.floor_bg.clone(),
             transform: Transform::from_xyz(0.0, 0.01, 0.0),
             ..default()
@@ -414,9 +406,7 @@ pub fn setup_space(
         .id();
     let child2 = commands
         .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube {
-                size: sizes::field.x,
-            })),
+            mesh: meshes.floor_cube.clone(),
             material: materials.ground.clone(),
             transform: Transform::from_xyz(0.0, -sizes::field.y, 0.0),
             ..default()
