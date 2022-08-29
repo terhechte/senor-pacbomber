@@ -99,7 +99,7 @@ fn keyboard_input_system(
     mut app_state: ResMut<State<GameState>>,
 ) {
     if keyboard_input.pressed(KeyCode::Return) {
-        app_state.set(GameState::Game).unwrap();
+        app_state.set(GameState::Loading).unwrap();
     }
 }
 
@@ -117,7 +117,7 @@ fn button_system(
         match *interaction {
             Interaction::Clicked => {
                 *color = PRESSED_BUTTON.into();
-                app_state.set(GameState::Game).unwrap();
+                app_state.set(GameState::Loading).unwrap();
             }
             Interaction::Hovered => {
                 *color = HOVERED_BUTTON.into();

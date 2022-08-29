@@ -1,8 +1,9 @@
-use bevy::{prelude::*, window::close_on_esc};
+use bevy::prelude::*;
 use bevy_mod_outline::*;
 use bevy_tweening::TweeningPlugin;
 
 mod game_plugin;
+mod loading_plugin;
 mod lost_plugin;
 mod menu_plugin;
 mod types;
@@ -14,6 +15,7 @@ pub use types::{MaterialHandles, MeshHandles};
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum GameState {
     Menu,
+    Loading,
     Game,
     Running,
     Lost,
@@ -39,8 +41,8 @@ fn main() {
         .add_plugin(menu_plugin::MenuPlugin)
         .add_plugin(won_plugin::WonPlugin)
         .add_plugin(lost_plugin::LostPlugin)
+        .add_plugin(loading_plugin::LoadingPlugin)
         .add_startup_system(init)
-        .add_system(close_on_esc)
         .run();
 }
 
@@ -189,5 +191,4 @@ fn init(
         }
     };
     commands.insert_resource(meshes);
-    println!("DONE LOADING");
 }

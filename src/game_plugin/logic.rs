@@ -25,6 +25,7 @@ pub fn level_loading(
     current_level: Res<CurrentLevel>,
     material_handles: Res<MaterialHandles>,
     mesh_handles: Res<MeshHandles>,
+    mut state: ResMut<State<GameState>>,
 ) {
     // only setup a new level if the level changed
     if !current_level.is_changed() {
@@ -121,6 +122,9 @@ pub fn level_loading(
         commands.entity(id).insert(LevelItem);
     }
     level.done_loading = true;
+    if state.current() != &GameState::Running {
+        state.set(GameState::Running).unwrap();
+    }
 }
 
 pub fn finish_level(
